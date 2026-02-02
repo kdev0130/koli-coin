@@ -1,8 +1,9 @@
+import React from "react";
 import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { Toaster as SonnerToaster } from "sonner";
 import SplashScreen from "./pages/SplashScreen";
 import PlatformGate from "./pages/PlatformGate";
 import SignUp from "./pages/SignUp";
@@ -13,29 +14,31 @@ import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
+function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <Routes>
-          {/* Auth Flow */}
-          <Route path="/" element={<SplashScreen />} />
-          <Route path="/gate" element={<PlatformGate />} />
-          <Route path="/signup" element={<SignUp />} />
-          <Route path="/signin" element={<SignIn />} />
-          <Route path="/verify-otp" element={<VerifyOTP />} />
-          
-          {/* Main App */}
-          <Route path="/dashboard" element={<Dashboard />} />
-          
-          {/* Catch-all */}
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+        <TooltipProvider>
+          <Routes>
+            {/* Auth Flow */}
+            <Route path="/" element={<SplashScreen />} />
+            <Route path="/gate" element={<PlatformGate />} />
+            <Route path="/signup" element={<SignUp />} />
+            <Route path="/signin" element={<SignIn />} />
+            <Route path="/verify-otp" element={<VerifyOTP />} />
+            
+            {/* Main App */}
+            <Route path="/dashboard" element={<Dashboard />} />
+            
+            {/* Catch-all */}
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+          <Toaster />
+          <SonnerToaster position="top-center" richColors />
+        </TooltipProvider>
       </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
-);
+    </QueryClientProvider>
+  );
+}
 
 export default App;
