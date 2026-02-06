@@ -2,18 +2,36 @@ import React, { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { useNavigate } from "react-router-dom";
 import koliLogo from "@/assets/koli-logo.png";
+import { useAuth } from "@/contexts/AuthContext";
 
 const SplashScreen = () => {
   const navigate = useNavigate();
+  const { user, loading } = useAuth();
   const [show, setShow] = useState(true);
 
   useEffect(() => {
+    if (loading) return; // Wait for auth to initialize
+
     const timer = setTimeout(() => {
       setShow(false);
-      setTimeout(() => navigate("/gate"), 500);
+      setTimeout(() => {
+        // Check if user is logged in
+        if (user) {
+          navigate("/dashboard");
+          return;
+        }
+
+        // Check if community code has been accepted
+        const hasAcceptedCode = localStorage.getItem("koli_platform_accepted") === "true";
+        if (hasAcceptedCode) {
+          navigate("/signin");
+        } else {
+          navigate("/gate");
+        }
+      }, 500);
     }, 2500);
     return () => clearTimeout(timer);
-  }, [navigate]);
+  }, [navigate, user, loading]);
 
   return (
     <div className="fixed inset-0 flex flex-col items-center justify-center bg-background safe-top safe-bottom">

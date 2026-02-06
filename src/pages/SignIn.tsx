@@ -6,6 +6,8 @@ import { Spotlight } from "@/components/ui/spotlight";
 import { AnimatedInput } from "@/components/ui/animated-input";
 import { KoliButton } from "@/components/ui/koli-button";
 import koliLogo from "@/assets/koli-logo.png";
+import { auth } from "@/lib/firebase";
+import { signInWithEmailAndPassword } from "firebase/auth";
 
 const SignIn = () => {
   const navigate = useNavigate();
@@ -19,17 +21,30 @@ const SignIn = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    setLoading(true);
-
-    // Simulate API call - for demo, any credentials work
-    await new Promise((resolve) => setTimeout(resolve, 1500));
     
-    if (formData.email && formData.password) {
-      navigate("/dashboard");
-    } else {
+    if (!formData.email || !formData.password) {
       setError("Please fill in all fields");
+      return;
     }
-    setLoading(false);
+    
+    setLoading(true);
+    try {
+      // Sign in with Firebase Auth
+      await signInWithEmailAndPassword(auth, formData.email, formData.password);
+      navigate("/dashboard");
+    } catch (error: any) {
+      console.error("Sign in error:", error);
+      const errorMessage = error.code === "auth/user-not-found" || error.code === "auth/wrong-password"
+        ? "Invalid email or password"
+        : error.code === "auth/invalid-credential"
+        ? "Invalid email or password"
+        : error.code === "auth/too-many-requests"
+        ? "Too many failed attempts. Please try again later"
+        : "Failed to sign in. Please try again";
+      setError(errorMessage);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleChange = (field: string, value: string) => {

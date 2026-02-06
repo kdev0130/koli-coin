@@ -6,6 +6,8 @@ import { Spotlight } from "@/components/ui/spotlight";
 import { AnimatedInput } from "@/components/ui/animated-input";
 import { KoliButton } from "@/components/ui/koli-button";
 import koliLogo from "@/assets/koli-logo.png";
+import { db } from "@/lib/firebase";
+import { collection, query, where, getDocs } from "firebase/firestore";
 
 const PlatformGate = () => {
   const navigate = useNavigate();
@@ -13,23 +15,34 @@ const PlatformGate = () => {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Mock valid codes for demo
-  const validCodes = ["KOLI2024", "KINGDOM", "COMMUNITY"];
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
 
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    try {
+      // Query Firestore for the platform code
+      const codesRef = collection(db, "platformCodes");
+      const q = query(
+        codesRef, 
+        where("code", "==", code.toUpperCase()),
+        where("isActive", "==", true)
+      );
+      const querySnapshot = await getDocs(q);
 
-    if (validCodes.includes(code.toUpperCase())) {
-      navigate("/signup");
-    } else {
-      setError("Invalid community code. Please contact your leader.");
+      if (!querySnapshot.empty) {
+        // Valid code found
+        localStorage.setItem("koli_platform_accepted", "true");
+        navigate("/signup");
+      } else {
+        setError("Invalid community code. Please contact your leader.");
+      }
+    } catch (error) {
+      console.error("Error verifying code:", error);
+      setError("Error verifying code. Please try again.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
@@ -61,7 +74,7 @@ const PlatformGate = () => {
               Exclusive Access
             </h1>
             <p className="text-muted-foreground text-sm leading-relaxed">
-              Exclusively for KOLI Community Investors. Enter the code your leader disseminated to you.
+              Exclusively for KOLI Community Donors. Enter the code your leader disseminated to you.
             </p>
           </motion.div>
 
@@ -104,16 +117,6 @@ const PlatformGate = () => {
               Verify Access
             </KoliButton>
           </motion.form>
-
-          {/* Demo hint */}
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 1 }}
-            className="mt-8 text-xs text-muted-foreground text-center"
-          >
-            Demo codes: KOLI2024, KINGDOM, COMMUNITY
-          </motion.p>
         </div>
 
         {/* Footer */}

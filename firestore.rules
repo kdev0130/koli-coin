@@ -1,0 +1,88 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Email OTP Verifications - Allow unauthenticated access for signup flow
+    match /emailOtpVerifications/{encodedEmail} {
+      // Allow authenticated users to read their own OTP for verification
+      allow read: if request.auth != null;
+      // Allow anyone to write (for signup before auth and resend)
+      allow write: if true;
+    }
+    
+    // Members collection
+    match /members/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Donation Contracts - Users can only access their own
+    match /donationContracts/{contractId} {
+      allow read: if request.auth != null && 
+                     resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null && 
+                       request.resource.data.userId == request.auth.uid &&
+                       request.resource.data.donationAmount > 0 &&
+                       request.resource.data.withdrawalsCount == 0;
+      allow update: if request.auth != null && 
+                       resource.data.userId == request.auth.uid &&
+                       // Only allow updating withdrawal fields
+                       request.resource.data.donationAmount == resource.data.donationAmount &&
+                       request.resource.data.userId == resource.data.userId &&
+                       // Allow withdrawal-related field updates
+                       request.resource.data.withdrawalsCount >= resource.data.withdrawalsCount &&
+                       request.resource.data.withdrawalsCount <= 12;
+    }
+    
+    // P2P Payout Queue - Users can create their own withdrawal requests
+    match /payout_queue/{payoutId} {
+      // Users can create their own payout requests
+      allow create: if request.auth != null && 
+                       request.resource.data.userId == request.auth.uid &&
+                       request.resource.data.amount > 0 &&
+                       request.resource.data.status == "pending";
+      // Users can read their own payout requests
+      allow read: if request.auth != null && 
+                     resource.data.userId == request.auth.uid;
+      // Only admins can update/delete (handled by admin rule below)
+      allow update, delete: if false;
+    }
+    
+    // Legacy deposits collection (keep for backwards compatibility)
+    match /deposits/{depositId} {
+      allow read, write: if request.auth != null;
+    }
+    
+    // Global Rewards - MANA daily reward pool
+    match /globalRewards/{rewardId} {
+      // Anyone authenticated can read the active reward to see the pool
+      allow read: if request.auth != null;
+      // Only allow writes through admin or Cloud Function
+      allow write: if false;
+    }
+    
+    // User Reward Claims - Track daily claims per user
+    match /userRewardClaims/{userId} {
+      // Users can read their own claim history
+      allow read: if request.auth != null && 
+                     request.auth.uid == userId;
+      // Only allow writes through Cloud Function
+      allow write: if false;
+    }
+    
+    // Rewards History - Track all reward claims
+    match /rewardsHistory/{historyId} {
+      // Users can read their own reward history
+      allow read: if request.auth != null && 
+                     resource.data.userId == request.auth.uid;
+      // Only allow writes through Cloud Function
+      allow write: if false;
+    }
+    
+    // Allow admins full access (checks /admins collection)
+    match /{document=**} {
+      allow read, write: if request.auth != null &&
+        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == "admin";
+    }
+  }
+}
+
