@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { motion } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 import { useNavigate } from "react-router-dom";
 import {
   IconLogout,
@@ -18,6 +18,8 @@ import {
   IconAlertCircle,
   IconHistory,
   IconLoader,
+  IconChevronDown,
+  IconChevronUp,
 } from "@tabler/icons-react";
 import { Pickaxe } from "lucide-react";
 import koliLogo from "@/assets/koli-logo.png";
@@ -27,6 +29,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { SkeletonList } from "@/components/ui/skeleton";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRealtimeContracts } from "@/hooks/useRealtimeContracts";
 import { useRealtimePayouts } from "@/hooks/useRealtimePayouts";
@@ -49,12 +52,25 @@ const Donation = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isUnifiedWithdrawalOpen, setIsUnifiedWithdrawalOpen] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   // Fetch user's donation contracts from Firestore in real-time
   const { data: contracts, loading: contractsLoading } = useRealtimeContracts(user?.uid || null);
   
   // Fetch user's withdrawal history from payout_queue
   const { data: payouts, loading: payoutsLoading } = useRealtimePayouts(user?.uid || null);
+
+  const toggleGroup = (groupId: string) => {
+    setExpandedGroups((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(groupId)) {
+        newSet.delete(groupId);
+      } else {
+        newSet.add(groupId);
+      }
+      return newSet;
+    });
+  };
 
   // Debug logging
   useEffect(() => {
@@ -88,6 +104,69 @@ const Donation = () => {
     eligibleContracts 
   } = calculateTotalWithdrawable(contracts, userBalance);
   const availableWithdrawalsCount = eligibleContracts.length;
+
+  // Group payouts by contract or type
+  const groupedPayouts = React.useMemo(() => {
+    const groups = new Map<string, any[]>();
+    
+    payouts.forEach((payout) => {
+      // For pooled withdrawals, group by withdrawalSessionId
+      // For individual withdrawals, group by contractId
+      let key: string;
+      
+      if (payout.withdrawalSessionId) {
+        // Multi-source pooled withdrawal - group by session
+        key = `session-${payout.withdrawalSessionId}`;
+      } else if (payout.contractId) {
+        // Single contract withdrawal - group by contract
+        key = `contract-${payout.contractId}`;
+      } else {
+        // MANA rewards or unknown - group together
+        key = "mana-rewards";
+      }
+      
+      if (!groups.has(key)) {
+        groups.set(key, []);
+      }
+      groups.get(key)!.push(payout);
+    });
+
+    return Array.from(groups.entries()).map(([key, items]) => {
+      if (items.length > 1) {
+        // Group multiple withdrawals
+        const totalAmount = items.reduce((sum, p) => sum + p.amount, 0);
+        const totalGrossAmount = items.reduce((sum, p) => sum + (p.grossAmount || p.amount), 0);
+        // Calculate fee as 10% of gross amount for display consistency
+        const calculatedFee = totalGrossAmount > totalAmount ? (totalGrossAmount - totalAmount) : 0;
+        const totalPlatformFee = calculatedFee > 0 ? calculatedFee : items.reduce((sum, p) => sum + (p.platformFee || 0), 0);
+        const latestDate = new Date(Math.max(...items.map(p => new Date(p.requestedAt).getTime())));
+        const allCompleted = items.every(p => p.status === "completed");
+        const anyPending = items.some(p => p.status === "pending");
+        const status = allCompleted ? "completed" : anyPending ? "pending" : items[0].status;
+        
+        return {
+          id: `group-${key}`,
+          isGroup: true,
+          contractId: key.startsWith("contract-") ? key.replace("contract-", "") : undefined,
+          withdrawalSessionId: key.startsWith("session-") ? key.replace("session-", "") : undefined,
+          isMANA: key === "mana-rewards",
+          amount: totalAmount,
+          grossAmount: totalGrossAmount > totalAmount ? totalGrossAmount : undefined,
+          platformFee: totalPlatformFee > 0 ? totalPlatformFee : undefined,
+          count: items.length,
+          status,
+          requestedAt: latestDate.toISOString(),
+          items: items.sort((a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime()),
+        };
+      } else {
+        // Single withdrawal
+        return {
+          ...items[0],
+          isGroup: false,
+        };
+      }
+    }).sort((a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime());
+  }, [payouts]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -342,34 +421,21 @@ const Donation = () => {
             </h2>
 
             {contractsLoading ? (
-              <div className="space-y-4">
-                {[1, 2, 3].map((i) => (
-                  <Card key={i} className="border-border">
-                    <CardContent className="p-4">
-                      <div className="animate-pulse space-y-3">
-                        <div className="h-6 bg-muted rounded w-1/3" />
-                        <div className="h-4 bg-muted rounded w-2/3" />
-                        <div className="h-4 bg-muted rounded w-1/2" />
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
+              <SkeletonList count={3} />
             ) : contracts.length === 0 ? (
-              <Card className="border-dashed border-2 border-muted">
-                <CardContent className="p-12 text-center">
-                  <IconGift className="mx-auto h-16 w-16 text-muted-foreground/50 mb-4" />
-                  <h3 className="text-lg font-semibold text-foreground mb-2">
-                    No active contracts
-                  </h3>
-                  <p className="text-sm text-muted-foreground mb-6">
-                    Start your 1-year donation contract with 12 monthly withdrawals
-                  </p>
-                  <Button onClick={() => setIsAddModalOpen(true)}>
-                    <IconPlus size={18} className="mr-2" />
-                    Create First Contract
+              <Card className="p-8 text-center">
+                <div className="space-y-4">
+                  <div className="text-6xl">📦</div>
+                  <div className="space-y-2">
+                    <h3 className="text-xl font-semibold">No Contracts Yet</h3>
+                    <p className="text-muted-foreground">
+                      Start earning 30% returns every 30 days for 12 months. Create your first donation contract today!
+                    </p>
+                  </div>
+                  <Button onClick={() => setIsAddModalOpen(true)} className="mt-4">
+                    Create Your First Contract
                   </Button>
-                </CardContent>
+                </div>
               </Card>
             ) : (
               <div className="space-y-6">
@@ -662,7 +728,7 @@ const Donation = () => {
                   <p className="text-sm text-muted-foreground">Loading history...</p>
                 </CardContent>
               </Card>
-            ) : payouts.length === 0 ? (
+            ) : groupedPayouts.length === 0 ? (
               <Card className="border-dashed border-2 border-muted">
                 <CardContent className="p-8 text-center">
                   <IconHistory className="mx-auto h-12 w-12 text-muted-foreground/50 mb-3" />
@@ -676,9 +742,13 @@ const Donation = () => {
               </Card>
             ) : (
               <div className="space-y-3">
-                {payouts.map((payout, index) => {
-                  const getStatusBadge = () => {
-                    switch (payout.status) {
+                {groupedPayouts.map((item, index) => {
+                  const isGroup = item.isGroup;
+                  const isExpanded = isGroup && expandedGroups.has(item.id);
+                  const payout = isGroup ? item.items[0] : item; // Use first item for display
+
+                  const getStatusBadge = (status: string) => {
+                    switch (status) {
                       case "completed":
                         return (
                           <Badge className="bg-green-500 text-white">
@@ -697,6 +767,18 @@ const Donation = () => {
                             <IconAlertCircle size={12} className="mr-1" /> Failed
                           </Badge>
                         );
+                      case "approved":
+                        return (
+                          <Badge className="bg-green-500 text-white">
+                            <IconCircleCheck size={12} className="mr-1" /> Approved
+                          </Badge>
+                        );
+                      case "returned":
+                        return (
+                          <Badge variant="destructive" className="bg-yellow-500 text-white border-yellow-600">
+                            <IconAlertCircle size={12} className="mr-1" /> Returned
+                          </Badge>
+                        );
                       case "pending":
                       default:
                         return (
@@ -707,116 +789,223 @@ const Donation = () => {
                     }
                   };
 
-                  const getStatusColor = () => {
-                    switch (payout.status) {
-                      case "completed":
-                        return "border-green-500/30 bg-green-500/5";
-                      case "processing":
-                        return "border-blue-500/30 bg-blue-500/5";
-                      case "failed":
-                        return "border-red-500/30 bg-red-500/5";
-                      case "pending":
-                      default:
-                        return "border-orange-500/30 bg-orange-500/5";
-                    }
-                  };
-
                   return (
-                    <motion.div
-                      key={payout.id}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: index * 0.05 }}
-                    >
-                      <Card className={`border ${getStatusColor()}`}>
-                        <CardContent className="p-4">
-                          <div className="flex items-start justify-between mb-3">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-1">
-                                <h3 className="font-bold text-xl text-foreground">
-                                  ₱{payout.amount.toLocaleString()}
-                                </h3>
-                                {getStatusBadge()}
+                    <React.Fragment key={item.id}>
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.05 }}
+                      >
+                        <Card 
+                          className={`border-border hover:border-primary transition-colors ${
+                            isGroup ? "cursor-pointer" : ""
+                          }`}
+                          onClick={isGroup ? () => toggleGroup(item.id) : undefined}
+                        >
+                          <CardContent className="p-4">
+                            <div className="flex items-start justify-between mb-3">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <h3 className="text-lg font-bold text-foreground">
+                                    ₱{item.amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  </h3>
+                                  {isGroup && (
+                                    <Badge variant="secondary" className="text-xs">
+                                      {item.count}x
+                                    </Badge>
+                                  )}
+                                  {getStatusBadge(item.status)}
+                                </div>
+                                {/* Show gross amount if different from net */}
+                                {item.grossAmount && item.grossAmount > item.amount && (
+                                  <div className="text-xs text-muted-foreground mb-1">
+                                    Gross: ₱{item.grossAmount.toLocaleString('en-PH', { minimumFractionDigits: 2 })} 
+                                    <span className="text-orange-500 ml-2">
+                                      (Fee: ₱{(item.platformFee || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })})
+                                    </span>
+                                  </div>
+                                )}
+                                <p className="text-xs text-muted-foreground">
+                                  {isGroup
+                                    ? item.isMANA
+                                      ? "MANA Rewards"
+                                      : `Withdrawal ${payout.withdrawalNumber}/${payout.totalWithdrawals || 12}`
+                                    : payout.withdrawalType === "MANA_REWARDS"
+                                    ? "MANA Rewards"
+                                    : `Withdrawal ${payout.withdrawalNumber}/${payout.totalWithdrawals || 12}`}
+                                </p>
                               </div>
-                              <p className="text-xs text-muted-foreground">
-                                Withdrawal {payout.withdrawalNumber}/{payout.totalWithdrawals}
-                              </p>
+                              {isGroup && (
+                                <div className="text-muted-foreground">
+                                  {isExpanded ? <IconChevronUp size={20} /> : <IconChevronDown size={20} />}
+                                </div>
+                              )}
                             </div>
-                            <div className="text-right">
-                              <p className="text-xs text-muted-foreground">Requested</p>
-                              <p className="text-sm font-medium text-foreground">
-                                {new Date(payout.requestedAt).toLocaleDateString()}
-                              </p>
-                              <p className="text-xs text-muted-foreground">
-                                {new Date(payout.requestedAt).toLocaleTimeString()}
-                              </p>
+
+                            <div className="flex items-center justify-between text-xs text-muted-foreground mb-3">
+                              <span>Requested</span>
+                              <span>{new Date(item.requestedAt).toLocaleString('en-PH', {
+                                month: 'short',
+                                day: 'numeric',
+                                year: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}</span>
                             </div>
-                          </div>
 
-                          <Separator className="my-3" />
+                            {!isGroup && (
+                              <>
+                                <Separator className="my-3" />
 
-                          <div className="grid grid-cols-2 gap-3 text-xs">
-                            {payout.contractPrincipal && !payout.isPooled && (
-                              <div>
-                                <p className="text-muted-foreground mb-1">Contract Principal</p>
-                                <p className="font-semibold text-foreground">
-                                  ₱{payout.contractPrincipal.toLocaleString()}
+                                {/* Fee Breakdown */}
+                                {payout.grossAmount && payout.grossAmount > payout.amount && (
+                                  <div className="bg-muted/30 rounded-lg p-3 mb-3">
+                                    <div className="text-xs space-y-1">
+                                      <div className="flex justify-between">
+                                        <span className="text-muted-foreground">Gross Amount:</span>
+                                        <span className="font-medium">₱{payout.grossAmount.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-muted-foreground">Platform Fee:</span>
+                                        <span className="font-medium text-orange-500">-₱{(payout.platformFee || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span>
+                                      </div>
+                                      <div className="flex justify-between border-t border-border pt-1">
+                                        <span className="font-medium">Net Amount:</span>
+                                        <span className="font-bold text-green-500">₱{payout.amount.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+
+                                <div className="grid grid-cols-2 gap-3 text-xs">
+                                  {payout.withdrawalType === "MANA_REWARDS" && (
+                                    <div>
+                                      <p className="text-muted-foreground mb-1">Type</p>
+                                      <p className="font-semibold text-yellow-500">
+                                        MANA Rewards
+                                      </p>
+                                    </div>
+                                  )}
+                                  {payout.isPooled && !payout.withdrawalType && (
+                                    <div>
+                                      <p className="text-muted-foreground mb-1">Type</p>
+                                      <p className="font-semibold text-primary">
+                                        Pooled Withdrawal
+                                      </p>
+                                    </div>
+                                  )}
+                                  <div>
+                                    <p className="text-muted-foreground mb-1">Status</p>
+                                    <p className="font-semibold text-foreground capitalize">
+                                      {payout.status}
+                                    </p>
+                                  </div>
+                                </div>
+                              </>
+                            )}
+
+                            {item.status === "pending" && (
+                              <div className="mt-3 p-2 rounded bg-orange-500/10 border border-orange-500/30">
+                                <p className="text-xs text-orange-400 flex items-center gap-2">
+                                  <IconClock size={14} />
+                                  Processing within 24 hours. Funds will be sent to your registered account.
                                 </p>
                               </div>
                             )}
-                            {payout.withdrawalType === "MANA_REWARDS" && (
-                              <div>
-                                <p className="text-muted-foreground mb-1">Type</p>
-                                <p className="font-semibold text-yellow-500">
-                                  MANA Rewards
+
+                            {(item.status === "completed" || item.status === "approved") && payout.processedAt && (
+                              <div className="mt-3 p-2 rounded bg-green-500/10 border border-green-500/30">
+                                <p className="text-xs text-green-400 flex items-center gap-2">
+                                  <IconCircleCheck size={14} />
+                                  {item.status === "approved" ? "Approved" : "Completed"} on {new Date(payout.processedAt).toLocaleString()}
                                 </p>
                               </div>
                             )}
-                            {payout.isPooled && !payout.withdrawalType && (
-                              <div>
-                                <p className="text-muted-foreground mb-1">Type</p>
-                                <p className="font-semibold text-primary">
-                                  Pooled Withdrawal
+
+                            {item.status === "failed" && (
+                              <div className="mt-3 p-2 rounded bg-red-500/10 border border-red-500/30">
+                                <p className="text-xs text-red-400 flex items-center gap-2">
+                                  <IconAlertCircle size={14} />
+                                  {payout.notes || "Payment failed. Please contact support."}
                                 </p>
                               </div>
                             )}
-                            <div>
-                              <p className="text-muted-foreground mb-1">Status</p>
-                              <p className="font-semibold text-foreground capitalize">
-                                {payout.status}
-                              </p>
-                            </div>
-                          </div>
 
-                          {payout.status === "pending" && (
-                            <div className="mt-3 p-2 rounded bg-orange-500/10 border border-orange-500/30">
-                              <p className="text-xs text-orange-400 flex items-center gap-2">
-                                <IconClock size={14} />
-                                Processing within 24 hours. Funds will be sent to your registered account.
-                              </p>
-                            </div>
-                          )}
+                            {item.status === "returned" && (
+                              <div className="mt-3 p-2 rounded bg-yellow-500/10 border border-yellow-500/30">
+                                <div className="space-y-2">
+                                  <p className="text-xs text-yellow-400 flex items-center gap-2">
+                                    <IconAlertCircle size={14} />
+                                    Payment returned by admin
+                                  </p>
+                                  {(payout.mainAdminNote || payout.financeNote) && (
+                                    <div className="text-xs text-yellow-300 bg-yellow-500/5 p-2 rounded border border-yellow-500/20">
+                                      <p className="font-medium mb-1">Admin Note:</p>
+                                      <p>{payout.mainAdminNote || payout.financeNote}</p>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </CardContent>
+                        </Card>
+                      </motion.div>
 
-                          {payout.status === "completed" && payout.processedAt && (
-                            <div className="mt-3 p-2 rounded bg-green-500/10 border border-green-500/30">
-                              <p className="text-xs text-green-400 flex items-center gap-2">
-                                <IconCircleCheck size={14} />
-                                Completed on {new Date(payout.processedAt).toLocaleString()}
-                              </p>
-                            </div>
-                          )}
-
-                          {payout.status === "failed" && (
-                            <div className="mt-3 p-2 rounded bg-red-500/10 border border-red-500/30">
-                              <p className="text-xs text-red-400 flex items-center gap-2">
-                                <IconAlertCircle size={14} />
-                                {payout.notes || "Payment failed. Please contact support."}
-                              </p>
-                            </div>
-                          )}
-                        </CardContent>
-                      </Card>
-                    </motion.div>
+                      {/* Expanded Group Items */}
+                      <AnimatePresence>
+                        {isGroup && isExpanded && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: "auto" }}
+                            exit={{ opacity: 0, height: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="ml-4 space-y-2"
+                          >
+                            {item.items.map((subPayout: any, subIndex: number) => (
+                              <Card key={subPayout.id} className="border-l-4 border-l-primary/50">
+                                <CardContent className="p-3">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <div>
+                                      <p className="text-sm font-semibold">
+                                        ₱{subPayout.amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                      </p>
+                                      <p className="text-xs text-muted-foreground">
+                                        {subPayout.withdrawalType === "MANA_REWARDS"
+                                          ? "MANA Rewards"
+                                          : `Withdrawal ${subPayout.withdrawalNumber}/${subPayout.totalWithdrawals || 12}`}
+                                      </p>
+                                    </div>
+                                    {getStatusBadge(subPayout.status)}
+                                  </div>
+                                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                    <span>Requested</span>
+                                    <span>{new Date(subPayout.requestedAt).toLocaleString()}</span>
+                                  </div>
+                                  
+                                  {subPayout.status === "pending" && (
+                                    <div className="mt-2 pt-2 border-t border-orange-500/30">
+                                      <p className="text-xs text-orange-400 flex items-center gap-1">
+                                        <IconClock size={12} />
+                                        Processing within 24 hours
+                                      </p>
+                                    </div>
+                                  )}
+                                  
+                                  {subPayout.status === "completed" && subPayout.processedAt && (
+                                    <div className="mt-2 pt-2 border-t border-green-500/30">
+                                      <p className="text-xs text-green-400 flex items-center gap-1">
+                                        <IconCircleCheck size={12} />
+                                        Completed on {new Date(subPayout.processedAt).toLocaleDateString()}
+                                      </p>
+                                    </div>
+                                  )}
+                                </CardContent>
+                              </Card>
+                            ))}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </React.Fragment>
                   );
                 })}
               </div>

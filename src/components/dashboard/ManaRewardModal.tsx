@@ -20,7 +20,7 @@ import {
   IconTrophy,
   IconLock,
 } from "@tabler/icons-react";
-import { doc, onSnapshot } from "firebase/firestore";
+import { doc, onSnapshot, collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { toast } from "sonner";
 import confetti from "canvas-confetti";
@@ -51,6 +51,8 @@ export const ManaRewardModal: React.FC<ManaRewardModalProps> = ({
   const [rewardData, setRewardData] = useState<GlobalReward | null>(null);
   const [rewardAmount, setRewardAmount] = useState<number | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [hasAlreadyClaimed, setHasAlreadyClaimed] = useState(false);
+  const [isCheckingClaim, setIsCheckingClaim] = useState(false);
 
   // Listen to global reward pool in real-time
   useEffect(() => {
@@ -74,6 +76,32 @@ export const ManaRewardModal: React.FC<ManaRewardModalProps> = ({
     return () => unsubscribe();
   }, [open]);
 
+  // Check if user already claimed the current code
+  useEffect(() => {
+    if (!open || !rewardData?.activeCode || !userId) return;
+
+    const checkIfAlreadyClaimed = async () => {
+      setIsCheckingClaim(true);
+      try {
+        const claimsRef = collection(db, "rewardClaims");
+        const q = query(
+          claimsRef,
+          where("userId", "==", userId),
+          where("secretCode", "==", rewardData.activeCode)
+        );
+        const snapshot = await getDocs(q);
+        setHasAlreadyClaimed(!snapshot.empty);
+      } catch (error) {
+        console.error("Error checking claim status:", error);
+        setHasAlreadyClaimed(false);
+      } finally {
+        setIsCheckingClaim(false);
+      }
+    };
+
+    checkIfAlreadyClaimed();
+  }, [open, rewardData?.activeCode, userId]);
+
   // Reset state when modal closes
   useEffect(() => {
     if (!open) {
@@ -81,6 +109,7 @@ export const ManaRewardModal: React.FC<ManaRewardModalProps> = ({
       setError(null);
       setRewardAmount(null);
       setShowSuccess(false);
+      setHasAlreadyClaimed(false);
     }
   }, [open]);
 
@@ -164,7 +193,7 @@ export const ManaRewardModal: React.FC<ManaRewardModalProps> = ({
     ? (rewardData.remainingPool / rewardData.totalPool) * 100
     : 0;
 
-  const isExpired = rewardData
+  const isExpired = rewardData && rewardData.expiresAt
     ? new Date(rewardData.expiresAt) < new Date()
     : false;
 
@@ -191,33 +220,6 @@ export const ManaRewardModal: React.FC<ManaRewardModalProps> = ({
               </DialogHeader>
 
               <div className="space-y-4 py-4">
-                {/* Pool Status */}
-                {rewardData && (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Remaining Pool</span>
-                      <span className="font-bold text-foreground">
-                        ₱{rewardData.remainingPool.toFixed(2)} / ₱
-                        {rewardData.totalPool.toFixed(2)}
-                      </span>
-                    </div>
-                    <Progress value={poolPercentage} className="h-2" />
-                    <p className="text-xs text-muted-foreground text-center">
-                      {poolPercentage.toFixed(0)}% remaining
-                    </p>
-                  </div>
-                )}
-
-                {/* Expiry Warning */}
-                {isExpired && (
-                  <Alert variant="destructive">
-                    <IconAlertCircle className="h-4 w-4" />
-                    <AlertDescription>
-                      This code has expired. Check Telegram for the new code!
-                    </AlertDescription>
-                  </Alert>
-                )}
-
                 {/* Pool Depleted Warning */}
                 {rewardData && rewardData.remainingPool <= 0 && (
                   <Alert className="bg-orange-500/10 border-orange-500/30 text-orange-400">
@@ -244,7 +246,7 @@ export const ManaRewardModal: React.FC<ManaRewardModalProps> = ({
                       setSecretCode(e.target.value.toUpperCase());
                       setError(null);
                     }}
-                    disabled={isProcessing || !rewardData || rewardData.remainingPool <= 0 || isExpired}
+                    disabled={isProcessing || (rewardData && rewardData.remainingPool <= 0)}
                     className="text-center text-lg font-mono tracking-wider"
                     maxLength={20}
                   />
@@ -282,14 +284,22 @@ export const ManaRewardModal: React.FC<ManaRewardModalProps> = ({
                   onClick={handleClaim}
                   disabled={
                     isProcessing ||
+                    isCheckingClaim ||
                     !secretCode.trim() ||
                     !rewardData ||
                     rewardData.remainingPool <= 0 ||
-                    isExpired
+                    isExpired ||
+                    hasAlreadyClaimed
                   }
                   className="bg-gradient-to-r from-yellow-500 to-orange-500"
                 >
-                  {isProcessing ? (
+                  {isCheckingClaim ? (
+                    "Checking..."
+                  ) : hasAlreadyClaimed ? (
+                    "Already Claimed"
+                  ) : isExpired ? (
+                    "Code Expired"
+                  ) : isProcessing ? (
                     <>
                       <IconSparkles size={16} className="mr-2 animate-spin" />
                       Claiming...

@@ -72,8 +72,15 @@ const Dashboard = () => {
             className="text-center space-y-2"
           >
             <h1 className="text-3xl md:text-4xl font-bold text-foreground">
-              Welcome to the Kingdom <span className="text-koli-gold">{userData?.name || ""}</span>
+              {(() => {
+                const hour = new Date().getHours();
+                const greeting = hour < 12 ? "Good Morning" : hour < 18 ? "Good Afternoon" : "Good Evening";
+                return userData?.name ? `${greeting}, ${userData.name}!` : greeting;
+              })()}
             </h1>
+            <h2 className="text-xl text-muted-foreground">
+              Welcome to the Kingdom
+            </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto">
               Stay updated with the latest news, track KOLI coin progress, and never miss important notifications
             </p>

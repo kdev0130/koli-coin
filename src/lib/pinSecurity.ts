@@ -1,6 +1,10 @@
 import { doc, updateDoc, getDoc } from "firebase/firestore";
 import { db } from "./firebase";
 
+// PIN lockout settings
+const MAX_PIN_ATTEMPTS = 3;
+const LOCKOUT_DURATION_MS = 30 * 60 * 1000; // 30 minutes
+
 /**
  * Hash a PIN using SHA-256
  * In production, use a more secure hashing method with salt
@@ -12,6 +16,40 @@ async function hashPin(pin: string): Promise<string> {
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   return hashHex;
+}
+
+/**
+ * Check if account is currently locked due to failed PIN attempts
+ */
+export async function isPinLocked(userId: string): Promise<{ locked: boolean; unlockTime?: Date }> {
+  const userRef = doc(db, "members", userId);
+  const userSnap = await getDoc(userRef);
+  
+  if (!userSnap.exists()) {
+    return { locked: false };
+  }
+  
+  const userData = userSnap.data();
+  const lockUntil = userData.pinLockUntil;
+  
+  if (!lockUntil) {
+    return { locked: false };
+  }
+  
+  const unlockTime = new Date(lockUntil);
+  const now = new Date();
+  
+  if (now < unlockTime) {
+    return { locked: true, unlockTime };
+  }
+  
+  // Lock expired, clear it
+  await updateDoc(userRef, {
+    pinLockUntil: null,
+    failedPinAttempts: 0,
+  });
+  
+  return { locked: false };
 }
 
 /**
@@ -49,12 +87,22 @@ export async function setupPin(userId: string, pin: string): Promise<void> {
 }
 
 /**
- * Verify PIN against stored hash
+ * Verify PIN against stored hash with lockout protection
+ * Tracks failed attempts and locks account after MAX_PIN_ATTEMPTS
  */
 export async function verifyPin(userId: string, pin: string): Promise<boolean> {
   const validation = validatePinFormat(pin);
   if (!validation.valid) {
+    await incrementFailedAttempts(userId);
     return false;
+  }
+
+  // Check if account is locked
+  const lockStatus = await isPinLocked(userId);
+  if (lockStatus.locked) {
+    const unlockTime = lockStatus.unlockTime!;
+    const minutesRemaining = Math.ceil((unlockTime.getTime() - Date.now()) / 60000);
+    throw new Error(`Account locked due to failed PIN attempts. Try again in ${minutesRemaining} minutes.`);
   }
   
   const userRef = doc(db, "members", userId);
@@ -72,7 +120,54 @@ export async function verifyPin(userId: string, pin: string): Promise<boolean> {
   }
   
   const inputHash = await hashPin(pin);
-  return inputHash === storedHash;
+  const isValid = inputHash === storedHash;
+  
+  if (isValid) {
+    // Reset failed attempts on successful verification
+    await updateDoc(userRef, {
+      failedPinAttempts: 0,
+      pinLockUntil: null,
+      lastSuccessfulPinVerification: new Date().toISOString(),
+    });
+    return true;
+  } else {
+    // Increment failed attempts
+    await incrementFailedAttempts(userId);
+    return false;
+  }
+}
+
+/**
+ * Increment failed PIN attempts and lock account if threshold reached
+ */
+async function incrementFailedAttempts(userId: string): Promise<void> {
+  const userRef = doc(db, "members", userId);
+  const userSnap = await getDoc(userRef);
+  
+  if (!userSnap.exists()) {
+    return;
+  }
+  
+  const userData = userSnap.data();
+  const currentAttempts = userData.failedPinAttempts || 0;
+  const newAttempts = currentAttempts + 1;
+  
+  if (newAttempts >= MAX_PIN_ATTEMPTS) {
+    // Lock the account
+    const lockUntil = new Date(Date.now() + LOCKOUT_DURATION_MS);
+    await updateDoc(userRef, {
+      failedPinAttempts: newAttempts,
+      pinLockUntil: lockUntil.toISOString(),
+      lastPinLockAt: new Date().toISOString(),
+    });
+    
+    // TODO: Send email notification about account lock
+    console.warn(`Account ${userId} locked until ${lockUntil.toISOString()}`);
+  } else {
+    await updateDoc(userRef, {
+      failedPinAttempts: newAttempts,
+    });
+  }
 }
 
 /**

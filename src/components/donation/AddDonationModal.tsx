@@ -7,9 +7,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { db } from "@/lib/firebase";
+import { db, storage } from "@/lib/firebase";
 import { collection, addDoc } from "firebase/firestore";
-import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { useAuth } from "@/contexts/AuthContext";
 import { donate } from "@/lib/donationContract";
 
@@ -134,17 +134,40 @@ export const AddDonationModal: React.FC<AddDonationModalProps> = ({ open, onClos
 
     setLoading(true);
     try {
-      // Upload receipt to Firebase Storage
-      const storage = getStorage();
+      // Use Firebase REST API directly to bypass SDK issues
       const timestamp = Date.now();
       const fileName = `receipts/${user?.uid}/${timestamp}_${receipt.name}`;
-      const storageRef = ref(storage, fileName);
       
-      // Upload the file
-      await uploadBytes(storageRef, receipt);
+      console.log("Uploading via REST API:", fileName);
       
-      // Get the download URL
-      const receiptURL = await getDownloadURL(storageRef);
+      // Get auth token
+      const token = await user?.getIdToken();
+      
+      // Upload directly via REST API
+      const uploadUrl = `https://firebasestorage.googleapis.com/v0/b/koli-2bad9.firebasestorage.app/o?name=${encodeURIComponent(fileName)}`;
+      
+      const uploadResponse = await fetch(uploadUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': receipt.type || 'application/octet-stream',
+        },
+        body: receipt
+      });
+      
+      if (!uploadResponse.ok) {
+        const errorText = await uploadResponse.text();
+        console.error("Upload failed:", uploadResponse.status, errorText);
+        throw new Error(`Upload failed: ${uploadResponse.status} - ${errorText}`);
+      }
+      
+      const uploadData = await uploadResponse.json();
+      console.log("Upload successful:", uploadData);
+      
+      // Construct download URL
+      const receiptURL = `https://firebasestorage.googleapis.com/v0/b/koli-2bad9.firebasestorage.app/o/${encodeURIComponent(fileName)}?alt=media`;
+      
+      console.log("Receipt uploaded successfully:", receiptURL);
 
       // Create donation contract using the new contract system
       await donate(
@@ -165,9 +188,31 @@ export const AddDonationModal: React.FC<AddDonationModalProps> = ({ open, onClos
       setReceipt(null);
       setStep(1);
       onClose();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error submitting donation:", error);
-      toast.error("Failed to submit donation. Please try again.");
+      console.error("Error details:", {
+        code: error.code,
+        message: error.message,
+        serverResponse: error.serverResponse,
+        customData: error.customData,
+        stack: error.stack
+      });
+      
+      let errorMessage = "Failed to submit donation. Please try again.";
+      
+      if (error.code === "storage/unknown") {
+        errorMessage = "Storage upload failed. Please check your Firebase Storage configuration and make sure the bucket exists.";
+      } else if (error.code === "storage/unauthorized") {
+        errorMessage = "You don't have permission to upload files. Please check storage rules.";
+      } else if (error.code === "storage/canceled") {
+        errorMessage = "Upload was canceled. Please try again.";
+      } else if (error.code === "storage/quota-exceeded") {
+        errorMessage = "Storage quota exceeded. Please contact support.";
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }

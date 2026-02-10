@@ -7,7 +7,10 @@ export interface PayoutRequest {
   userId: string;
   contractId?: string;
   amount: number;
-  status: "pending" | "processing" | "completed" | "failed";
+  grossAmount?: number;
+  platformFee?: number;
+  netAmount?: number;
+  status: "pending" | "processing" | "completed" | "approved" | "failed" | "returned";
   userFullName: string;
   userPhoneNumber: string;
   userEmail: string;
@@ -17,6 +20,10 @@ export interface PayoutRequest {
   withdrawalType?: "MANA_REWARDS" | "CONTRACT";
   isPooled?: boolean;
   periodsWithdrawn?: number;
+  withdrawalSessionId?: string;
+  totalWithdrawableBalance?: number; // Remaining withdrawable balance after this withdrawal
+  mainAdminNote?: string;
+  financeNote?: string;
   requestedAt: string;
   processedAt: string | null;
   processedBy: string | null;

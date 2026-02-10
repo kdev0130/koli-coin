@@ -1,6 +1,12 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Platform Codes - Allow unauthenticated read for signup gate verification
+    match /platformCodes/{codeId} {
+      allow read: if true;  // Anyone can check if a code is valid
+      allow write: if false;  // Only admins can manage codes
+    }
+    
     // Email OTP Verifications - Allow unauthenticated access for signup flow
     match /emailOtpVerifications/{encodedEmail} {
       // Allow authenticated users to read their own OTP for verification
@@ -9,42 +15,27 @@ service cloud.firestore {
       allow write: if true;
     }
     
-    // Members collection
+    // Admins collection - MUST come before catch-all rule to avoid circular dependency
+    match /admins/{adminId} {
+      // Allow authenticated users to read their own admin document
+      allow read: if request.auth != null && request.auth.uid == adminId;
+      // Only super admins can manage admin accounts (or use admin SDK)
+      allow write: if false;
+    }
+    
+    // Members collection - Allow authenticated users to access
     match /members/{userId} {
-      allow read: if request.auth != null && request.auth.uid == userId;
-      allow write: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if request.auth != null;
     }
     
-    // Donation Contracts - Users can only access their own
+    // Donation Contracts - Allow authenticated users to access
     match /donationContracts/{contractId} {
-      allow read: if request.auth != null && 
-                     resource.data.userId == request.auth.uid;
-      allow create: if request.auth != null && 
-                       request.resource.data.userId == request.auth.uid &&
-                       request.resource.data.donationAmount > 0 &&
-                       request.resource.data.withdrawalsCount == 0;
-      allow update: if request.auth != null && 
-                       resource.data.userId == request.auth.uid &&
-                       // Only allow updating withdrawal fields
-                       request.resource.data.donationAmount == resource.data.donationAmount &&
-                       request.resource.data.userId == resource.data.userId &&
-                       // Allow withdrawal-related field updates
-                       request.resource.data.withdrawalsCount >= resource.data.withdrawalsCount &&
-                       request.resource.data.withdrawalsCount <= 12;
+      allow read, write: if request.auth != null;
     }
     
-    // P2P Payout Queue - Users can create their own withdrawal requests
+    // P2P Payout Queue - Allow authenticated users to access
     match /payout_queue/{payoutId} {
-      // Users can create their own payout requests
-      allow create: if request.auth != null && 
-                       request.resource.data.userId == request.auth.uid &&
-                       request.resource.data.amount > 0 &&
-                       request.resource.data.status == "pending";
-      // Users can read their own payout requests
-      allow read: if request.auth != null && 
-                     resource.data.userId == request.auth.uid;
-      // Only admins can update/delete (handled by admin rule below)
-      allow update, delete: if false;
+      allow read, write: if request.auth != null;
     }
     
     // Legacy deposits collection (keep for backwards compatibility)
@@ -78,11 +69,35 @@ service cloud.firestore {
       allow write: if false;
     }
     
-    // Allow admins full access (checks /admins collection)
+    // Reward Claims - Track secret code claims per user
+    match /rewardClaims/{claimId} {
+      // Users can read their own claims to check for duplicates
+      allow read: if request.auth != null && 
+                     resource.data.userId == request.auth.uid;
+      // Only allow writes through Cloud Function
+      allow write: if false;
+    }
+    
+    // MANA Claim Analytics - Admin dashboard data
+    match /manaClaimAnalytics/{analyticsId} {
+      // Only admins can read analytics data
+      allow read: if request.auth != null &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      // Only allow writes through Cloud Function
+      allow write: if false;
+    }
+    
+    // Donations collection - Admin access
+    match /donations/{donationId} {
+      allow read, write: if request.auth != null &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+    
+    // Allow admins full access to remaining collections
+    // This catch-all must come AFTER specific rules
     match /{document=**} {
       allow read, write: if request.auth != null &&
-        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == "admin";
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
   }
 }
-

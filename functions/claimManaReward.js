@@ -134,6 +134,20 @@ export const claimManaReward = onRequest(async (req, res) => {
         poolAfter: rewardData.remainingPool - rewardAmount,
       });
 
+      // 10b. Store in rewardClaims collection
+      const rewardClaimRef = db.collection('rewardClaims').doc();
+      transaction.set(rewardClaimRef, {
+        userId,
+        userName: userName || userData.name || userData.email || 'User',
+        userEmail: userData.email || '',
+        secretCode: normalizedCode,
+        claimAmount: rewardAmount,
+        poolBefore: rewardData.remainingPool,
+        poolAfter: rewardData.remainingPool - rewardAmount,
+        claimedAt: FieldValue.serverTimestamp(),
+        rewardPoolId: rewardData.poolId || 'currentActiveReward',
+      });
+
       // 11. Update user's balance and total rewards
       const currentTotalRewards = userData.totalRewards || 0;
       const currentBalance = userData.balance || 0;
@@ -142,6 +156,27 @@ export const claimManaReward = onRequest(async (req, res) => {
         totalRewards: currentTotalRewards + rewardAmount,
         balance: currentBalance + rewardAmount,
         lastManaClaimDate: today,
+      });
+
+      // 12. Store analytics data for admin dashboard
+      const analyticsRef = db.collection('manaClaimAnalytics').doc();
+      const claimedAt = new Date();
+      const rewardPostedAt = new Date(rewardData.postedAt || rewardData.expiresAt);
+      const timeToClaim = claimedAt - rewardPostedAt; // milliseconds
+
+      transaction.set(analyticsRef, {
+        userId,
+        userName: userName || userData.name || userData.email || 'User',
+        userEmail: userData.email || '',
+        claimAmount: rewardAmount,
+        claimedAt: FieldValue.serverTimestamp(),
+        claimedDate: today,
+        secretCode: normalizedCode,
+        timeToClaim: timeToClaim, // Time in milliseconds from when code was posted
+        timeToClaimMinutes: Math.round(timeToClaim / 60000), // Convert to minutes
+        poolBefore: rewardData.remainingPool,
+        poolAfter: rewardData.remainingPool - rewardAmount,
+        rewardPoolId: rewardData.poolId || 'currentActiveReward',
       });
 
       return { amount: rewardAmount };

@@ -22,7 +22,7 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({ children }) => {
   const [checkingUnlock, setCheckingUnlock] = useState(true);
 
   // Public routes that don't require authentication
-  const publicRoutes = ["/signin", "/signup", "/", "/splash"];
+  const publicRoutes = ["/signin", "/signup", "/", "/splash", "/gate"];
   
   // Routes that don't require PIN unlock
   const noPinRoutes = ["/pin-setup"];

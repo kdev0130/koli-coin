@@ -20,8 +20,6 @@ export const auth = betterAuth({
         //   to: phoneNumber,
         //   from: process.env.TWILIO_PHONE_NUMBER
         // });
-        
-        return true;
       },
     }),
   ],

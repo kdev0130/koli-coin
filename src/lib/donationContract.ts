@@ -9,7 +9,8 @@ export interface DonationContract {
   donationAmount: number; // Principal - NEVER changes
   donationStartDate: string | null; // ISO string - Set when approved by admin
   lastWithdrawalDate: string | null; // ISO string or null
-  withdrawalsCount: number; // 0-12
+  withdrawalsCount: number; // 0-12 (deprecated, kept for backwards compatibility)
+  totalWithdrawn?: number; // Actual total amount withdrawn (replaces period counting)
   contractEndDate: string | null; // ISO string (donationStartDate + 1 year) - Set when approved
   status: "pending" | "active" | "approved" | "completed" | "expired";
   receiptURL?: string;
@@ -49,6 +50,7 @@ export async function donate(
     donationStartDate: null, // Will be set when admin approves
     lastWithdrawalDate: null,
     withdrawalsCount: 0,
+    totalWithdrawn: 0, // Track actual amount withdrawn
     contractEndDate: null, // Will be set when admin approves
     status: "pending", // Awaiting admin approval
     paymentMethod,
@@ -103,13 +105,14 @@ export async function approveContract(
 /**
  * Check if user can withdraw from a contract
  * @param contract - The donation contract
- * @returns Object with canWithdraw boolean, reason, and available periods
+ * @returns Object with canWithdraw boolean, reason, available periods, and available amount
  */
 export function canWithdraw(contract: DonationContract): {
   canWithdraw: boolean;
   reason: string;
   nextWithdrawalDate?: Date;
   availablePeriods?: number;
+  availableAmount?: number;
 } {
   const now = new Date();
   
@@ -119,6 +122,7 @@ export function canWithdraw(contract: DonationContract): {
       canWithdraw: false,
       reason: "Contract pending admin approval",
       availablePeriods: 0,
+      availableAmount: 0,
     };
   }
   
@@ -128,6 +132,7 @@ export function canWithdraw(contract: DonationContract): {
       canWithdraw: false,
       reason: "Contract not yet approved",
       availablePeriods: 0,
+      availableAmount: 0,
     };
   }
   
@@ -140,6 +145,7 @@ export function canWithdraw(contract: DonationContract): {
       canWithdraw: false,
       reason: "Contract has expired (1 year period ended)",
       availablePeriods: 0,
+      availableAmount: 0,
     };
   }
 
@@ -149,30 +155,31 @@ export function canWithdraw(contract: DonationContract): {
       canWithdraw: false,
       reason: `Contract status is ${contract.status}`,
       availablePeriods: 0,
+      availableAmount: 0,
     };
   }
 
-  // Check if all withdrawals used (12 max)
-  if (contract.withdrawalsCount >= 12) {
-    return {
-      canWithdraw: false,
-      reason: "All 12 withdrawals have been used",
-      availablePeriods: 0,
-    };
-  }
-
-  // Calculate how many 30-day periods have elapsed since start
+  // Calculate accumulated withdrawable funds based on time elapsed
   const daysSinceStart = Math.floor((now.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
   const periodsElapsed = Math.floor(daysSinceStart / 30);
   
-  // Available periods = periods elapsed - withdrawals already taken
-  const availablePeriods = Math.min(periodsElapsed - contract.withdrawalsCount, 12 - contract.withdrawalsCount);
-
-  // Calculate when next period unlocks
-  const nextPeriodNumber = contract.withdrawalsCount + availablePeriods + 1;
-  const nextWithdrawalDate = new Date(startDate);
-  nextWithdrawalDate.setDate(nextWithdrawalDate.getDate() + (nextPeriodNumber * 30));
-
+  // Amount per period (30% of donation)
+  const amountPerPeriod = contract.donationAmount * 0.3;
+  
+  // Maximum total that can ever be withdrawn (12 periods worth = 3.6x donation)
+  const maxTotalWithdrawal = amountPerPeriod * 12;
+  
+  // Total amount withdrawn so far (use new field or calculate from old withdrawalsCount)
+  const totalWithdrawn = contract.totalWithdrawn ?? (contract.withdrawalsCount * amountPerPeriod);
+  
+  // Accumulated available = (periods elapsed × amount per period) - total already withdrawn
+  // Capped at maximum allowed
+  const accumulatedAmount = Math.min(periodsElapsed * amountPerPeriod, maxTotalWithdrawal);
+  const availableAmount = Math.max(0, accumulatedAmount - totalWithdrawn);
+  
+  // Calculate equivalent periods for backwards compatibility
+  const availablePeriods = Math.floor(availableAmount / amountPerPeriod);
+  
   // Check if first period has unlocked yet (30 days after start)
   if (periodsElapsed < 1) {
     const firstWithdrawalDate = new Date(startDate);
@@ -182,23 +189,32 @@ export function canWithdraw(contract: DonationContract): {
       reason: "Must wait 30 days after donation before first withdrawal",
       nextWithdrawalDate: firstWithdrawalDate,
       availablePeriods: 0,
+      availableAmount: 0,
     };
   }
 
-  if (availablePeriods > 0) {
+  if (availableAmount > 0) {
     return {
       canWithdraw: true,
-      reason: availablePeriods === 1 ? "1 period available" : `${availablePeriods} periods available (stacked)`,
-      nextWithdrawalDate: nextWithdrawalDate,
+      reason: `₱${availableAmount.toFixed(2)} available to withdraw`,
       availablePeriods,
+      availableAmount,
     };
   }
+  
+  // Check if completed or just need to wait
+  const isCompleted = totalWithdrawn >= maxTotalWithdrawal;
+  const nextWithdrawalDate = new Date(startDate);
+  nextWithdrawalDate.setDate(nextWithdrawalDate.getDate() + ((periodsElapsed + 1) * 30));
 
   return {
     canWithdraw: false,
-    reason: "No periods available yet",
-    nextWithdrawalDate: nextWithdrawalDate,
+    reason: isCompleted
+      ? "All funds withdrawn (3.6x donation limit reached)"
+      : `Next funds available in ${30 - (daysSinceStart % 30)} days`,
+    nextWithdrawalDate: isCompleted ? undefined : nextWithdrawalDate,
     availablePeriods: 0,
+    availableAmount: 0,
   };
 }
 
@@ -359,12 +375,17 @@ export function isContractActive(contract: DonationContract): boolean {
   
   const now = new Date();
   const endDate = new Date(contract.contractEndDate);
+  
+  // Calculate if user has withdrawn max allowed (12 periods worth = 3.6x donation)
+  const amountPerPeriod = contract.donationAmount * 0.3;
+  const maxTotalWithdrawal = amountPerPeriod * 12;
+  const totalWithdrawn = contract.totalWithdrawn ?? (contract.withdrawalsCount * amountPerPeriod);
 
   // Accept both "active" and "approved" statuses
   return (
     (contract.status === "active" || contract.status === "approved") &&
     now <= endDate &&
-    contract.withdrawalsCount < 12
+    totalWithdrawn < maxTotalWithdrawal
   );
 }
 
@@ -383,15 +404,20 @@ export function getWithdrawalDetails(contract: DonationContract): {
 } {
   const withdrawalPerPeriod = Math.floor(contract.donationAmount * 0.3);
   const maxTotalWithdrawal = withdrawalPerPeriod * 12;
-  const totalWithdrawn = withdrawalPerPeriod * contract.withdrawalsCount;
-  const totalRemaining = maxTotalWithdrawal - totalWithdrawn;
+  // Use actual amount withdrawn, not period-based calculation
+  const totalWithdrawn = contract.totalWithdrawn ?? (withdrawalPerPeriod * contract.withdrawalsCount);
+  const totalRemaining = Math.max(0, maxTotalWithdrawal - totalWithdrawn);
+  
+  // Calculate equivalent periods for display
+  const equivalentPeriodsUsed = Math.ceil(totalWithdrawn / withdrawalPerPeriod);
+  const equivalentPeriodsRemaining = Math.max(0, 12 - equivalentPeriodsUsed);
 
   return {
     totalWithdrawn,
     totalRemaining,
     withdrawalPerPeriod,
-    withdrawalsUsed: contract.withdrawalsCount,
-    withdrawalsRemaining: getRemainingWithdrawals(contract),
+    withdrawalsUsed: equivalentPeriodsUsed,
+    withdrawalsRemaining: equivalentPeriodsRemaining,
     maxTotalWithdrawal,
   };
 }
@@ -449,13 +475,10 @@ export function calculateTotalWithdrawable(
   let contractWithdrawals = 0;
 
   for (const contract of contracts) {
-    const { canWithdraw: isAllowed, availablePeriods = 0 } = canWithdraw(contract);
+    const withdrawalCheck = canWithdraw(contract);
+    const { canWithdraw: isAllowed, availableAmount = 0 } = withdrawalCheck;
     
-    if (isAllowed && availablePeriods > 0) {
-      const details = getWithdrawalDetails(contract);
-      // Calculate total available: withdrawal per period * number of available periods
-      const availableAmount = details.withdrawalPerPeriod * availablePeriods;
-      
+    if (isAllowed && availableAmount > 0) {
       eligibleContracts.push({
         contract,
         availableAmount,
@@ -550,7 +573,9 @@ export async function processPooledWithdrawal(
   pin: string,
   requestedAmount: number,
   contracts: DonationContract[],
-  manaToWithdraw: number = 0
+  manaToWithdraw: number = 0,
+  platformFee: number = 0,
+  grossAmount: number = 0
 ): Promise<{ payoutIds: string[]; totalAmount: number }> {
   // Verify PIN first
   const isPinValid = await verifyPin(userId, pin);
@@ -592,6 +617,13 @@ export async function processPooledWithdrawal(
   const now = new Date().toISOString();
   let remainingAmount = requestedAmount;
 
+  // Generate a unique withdrawal session ID to link all payouts from this single withdrawal
+  const withdrawalSessionId = `session_${Date.now()}_${userId.substring(0, 8)}`;
+
+  // Calculate remaining withdrawable balance after this withdrawal
+  const { totalAmount: currentTotalWithdrawable } = calculateTotalWithdrawable(contracts, userData.balance || 0);
+  const totalWithdrawableAfterWithdrawal = currentTotalWithdrawable - requestedAmount;
+
   // First, withdraw from MANA if selected
   if (manaToWithdraw > 0 && remainingAmount > 0) {
     const manaAmount = Math.min(remainingAmount, manaToWithdraw);
@@ -610,8 +642,13 @@ export async function processPooledWithdrawal(
       userEmail: userData.email || "",
       userPhone: userData.phoneNumber || "",
       amount: manaAmount,
+      grossAmount: platformFee > 0 ? manaAmount / (1 - (platformFee / grossAmount)) : manaAmount,
+      platformFee: platformFee > 0 ? (manaAmount / (1 - (platformFee / grossAmount))) - manaAmount : 0,
+      netAmount: manaAmount,
       withdrawalType: "MANA_REWARDS",
       isPooled: true,
+      withdrawalSessionId, // Link to withdrawal session
+      totalWithdrawableBalance: totalWithdrawableAfterWithdrawal, // Remaining balance after withdrawal
       status: "pending",
       paymentMethod: userData.preferredPayoutMethod || "GCash",
       gcashNumber: userData.gcashNumber || "",
@@ -638,20 +675,26 @@ export async function processPooledWithdrawal(
       const { contractId, amount, contract } = item;
       const contractRef = doc(db, "donationContracts", contractId);
 
-      // Calculate how many periods are being withdrawn
+      // Calculate actual total withdrawn and check if completed
       const amountPerPeriod = contract.donationAmount * 0.3;
-      const periodsWithdrawn = Math.round(amount / amountPerPeriod);
+      const maxTotalWithdrawal = amountPerPeriod * 12;
+      const currentTotalWithdrawn = contract.totalWithdrawn ?? (contract.withdrawalsCount * amountPerPeriod);
+      const newTotalWithdrawn = currentTotalWithdrawn + amount;
+      
+      // Calculate equivalent periods for backwards compatibility
+      const equivalentPeriods = Math.ceil(newTotalWithdrawn / amountPerPeriod);
+      const newStatus = newTotalWithdrawn >= maxTotalWithdrawal ? "completed" : contract.status;
 
-      // Update contract withdrawal info
-      const newWithdrawalsCount = contract.withdrawalsCount + periodsWithdrawn;
-      const newStatus = newWithdrawalsCount >= 12 ? "completed" : contract.status;
-
+      // Update contract with actual amount withdrawn
       await updateDoc(contractRef, {
-        withdrawalsCount: newWithdrawalsCount,
+        totalWithdrawn: newTotalWithdrawn,
+        withdrawalsCount: equivalentPeriods, // Keep for backwards compatibility
+        lastWithdrawalDate: now,
         status: newStatus,
       });
 
       // Create P2P payout queue document for manual processing
+      const remainingBalance = maxTotalWithdrawal - newTotalWithdrawn;
       const payoutData = {
         userId,
         userName: userData.fullName || userData.email || "Unknown",
@@ -659,10 +702,17 @@ export async function processPooledWithdrawal(
         userPhone: userData.phoneNumber || "",
         contractId,
         amount,
+        grossAmount: platformFee > 0 ? amount / (1 - (platformFee / grossAmount)) : amount,
+        platformFee: platformFee > 0 ? (amount / (1 - (platformFee / grossAmount))) - amount : 0,
+        netAmount: amount,
         isPooled: true, // Mark as pooled withdrawal
-        withdrawalNumber: newWithdrawalsCount,
+        withdrawalSessionId, // Link to withdrawal session
+        totalWithdrawableBalance: totalWithdrawableAfterWithdrawal, // Remaining balance after withdrawal
+        withdrawalNumber: equivalentPeriods, // Equivalent period number
         totalWithdrawals: 12,
-        periodsWithdrawn, // Track how many periods were withdrawn
+        actualAmountWithdrawn: amount, // Actual amount this withdrawal
+        totalWithdrawnSoFar: newTotalWithdrawn, // Total withdrawn including this
+        remainingBalance, // Remaining withdrawable balance
         status: "pending",
         paymentMethod: userData.preferredPayoutMethod || "GCash",
         gcashNumber: userData.gcashNumber || "",
@@ -670,9 +720,7 @@ export async function processPooledWithdrawal(
         processedAt: null,
         processedBy: null,
         transactionProof: null,
-        notes: periodsWithdrawn > 1 
-          ? `Pooled withdrawal: ₱${amount.toFixed(2)} (${periodsWithdrawn} periods) from contract ${contractId}`
-          : `Pooled withdrawal: ₱${amount.toFixed(2)} from contract ${contractId}`,
+        notes: `Withdrawal: ₱${amount.toFixed(2)} (₱${remainingBalance.toFixed(2)} remaining) from contract ${contractId}`,
       };
 
       const payoutRef = await addDoc(collection(db, "payout_queue"), payoutData);

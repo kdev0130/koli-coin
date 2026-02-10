@@ -58,6 +58,8 @@ export const UnifiedWithdrawalModal: React.FC<UnifiedWithdrawalModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
   const [processedPayouts, setProcessedPayouts] = useState<string[]>([]);
+  const [withdrawalFee, setWithdrawalFee] = useState(0);
+  const [netAmount, setNetAmount] = useState(0);
   
   // Track which contracts and MANA are selected for withdrawal
   const [selectedContractIds, setSelectedContractIds] = useState<Set<string>>(new Set());
@@ -114,6 +116,12 @@ export const UnifiedWithdrawalModal: React.FC<UnifiedWithdrawalModalProps> = ({
     // Allow only valid decimal numbers
     if (value === "" || /^\d*\.?\d{0,2}$/.test(value)) {
       setWithdrawalAmount(value);
+      // Calculate 10% fee and net amount
+      const gross = parseFloat(value) || 0;
+      const fee = gross * 0.10;
+      const net = gross - fee;
+      setWithdrawalFee(fee);
+      setNetAmount(net);
       setError(null);
     }
   }, []);
@@ -126,6 +134,11 @@ export const UnifiedWithdrawalModal: React.FC<UnifiedWithdrawalModalProps> = ({
 
   const setQuickAmount = useCallback((amount: number) => {
     setWithdrawalAmount(amount.toFixed(2));
+    // Calculate 10% fee and net amount
+    const fee = amount * 0.10;
+    const net = amount - fee;
+    setWithdrawalFee(fee);
+    setNetAmount(net);
     setError(null);
   }, []);
 
@@ -163,7 +176,7 @@ export const UnifiedWithdrawalModal: React.FC<UnifiedWithdrawalModalProps> = ({
         throw new Error("Please select at least one contract or MANA rewards to withdraw from");
       }
 
-      // Validate against selected available balance
+      // Validate gross amount against selected available balance
       if (amount > selectedAvailable) {
         const shortfall = amount - selectedAvailable;
         throw new Error(
@@ -177,6 +190,10 @@ export const UnifiedWithdrawalModal: React.FC<UnifiedWithdrawalModalProps> = ({
         );
       }
 
+      // Calculate 10% platform fee
+      const platformFee = amount * 0.10;
+      const netWithdrawal = amount - platformFee;
+
       // Validate PIN format
       const pinValidation = validatePinFormat(pin);
       if (!pinValidation.valid) {
@@ -188,21 +205,23 @@ export const UnifiedWithdrawalModal: React.FC<UnifiedWithdrawalModalProps> = ({
         .filter(c => selectedContractIds.has(c.id))
         .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
       
-      // Process pooled withdrawal with selected contracts only
+      // Process pooled withdrawal with net amount (after 10% fee deduction)
       const result = await processPooledWithdrawal(
         userId,
         pin,
-        amount,
+        netWithdrawal, // Pass net amount after fee
         selectedContracts,
-        selectedMana ? manaBalance : 0 // Pass MANA balance if selected
+        selectedMana ? manaBalance : 0, // Pass MANA balance if selected
+        platformFee, // Pass platform fee for tracking
+        amount // Pass gross amount for tracking
       );
 
       setProcessedPayouts(result.payoutIds);
       setShowSuccess(true);
 
-      // Show success toast
+      // Show success toast with fee breakdown
       toast.success("Withdrawal Submitted!", {
-        description: `₱${amount.toFixed(2)} withdrawal request has been queued for processing.`,
+        description: `₱${netWithdrawal.toFixed(2)} net amount (₱${amount.toFixed(2)} - ₱${platformFee.toFixed(2)} fee) will be processed.`,
       });
 
       // Call success callback after a delay
@@ -454,7 +473,7 @@ export const UnifiedWithdrawalModal: React.FC<UnifiedWithdrawalModalProps> = ({
 
                 {/* Withdrawal Amount Input */}
                 <div className="space-y-2">
-                  <Label htmlFor="amount">Withdrawal Amount</Label>
+                  <Label htmlFor="amount">Withdrawal Amount (Gross)</Label>
                   <Input
                     id="amount"
                     type="text"
@@ -508,6 +527,26 @@ export const UnifiedWithdrawalModal: React.FC<UnifiedWithdrawalModalProps> = ({
                     <p className="text-xs text-muted-foreground">
                       Available from selected sources: ₱{selectedAvailable.toFixed(2)}
                     </p>
+                  )}
+                  {/* Fee Breakdown */}
+                  {withdrawalAmount && parseFloat(withdrawalAmount) > 0 && (
+                    <Card className="p-3 bg-muted/50 border-yellow-200 dark:border-yellow-800">
+                      <div className="space-y-1 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Gross Amount:</span>
+                          <span className="font-medium">₱{parseFloat(withdrawalAmount).toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-yellow-700 dark:text-yellow-400">
+                          <span>Platform Fee (10%):</span>
+                          <span className="font-medium">- ₱{withdrawalFee.toFixed(2)}</span>
+                        </div>
+                        <Separator className="my-1" />
+                        <div className="flex justify-between font-bold text-primary">
+                          <span>You'll Receive:</span>
+                          <span>₱{netAmount.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    </Card>
                   )}
                 </div>
 
@@ -624,9 +663,22 @@ export const UnifiedWithdrawalModal: React.FC<UnifiedWithdrawalModalProps> = ({
                 <Card className="p-4 w-full bg-muted/50">
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">Amount:</span>
-                      <span className="font-bold text-primary">
+                      <span className="text-muted-foreground">Gross Amount:</span>
+                      <span className="font-medium">
                         ₱{parseFloat(withdrawalAmount).toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-yellow-700 dark:text-yellow-400">
+                      <span className="text-muted-foreground">Platform Fee (10%):</span>
+                      <span className="font-medium">
+                        - ₱{withdrawalFee.toFixed(2)}
+                      </span>
+                    </div>
+                    <Separator />
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Net Amount:</span>
+                      <span className="font-bold text-primary">
+                        ₱{netAmount.toFixed(2)}
                       </span>
                     </div>
                     <div className="flex justify-between">

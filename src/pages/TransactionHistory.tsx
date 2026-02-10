@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { motion } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 import { useNavigate } from "react-router-dom";
 import {
   IconArrowLeft,
@@ -14,12 +14,17 @@ import {
   IconReceipt,
   IconClock,
   IconFilter,
+  IconRefresh,
+  IconChevronDown,
+  IconChevronUp,
 } from "@tabler/icons-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { SkeletonList } from "@/components/ui/skeleton";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRealtimeContracts } from "@/hooks/useRealtimeContracts";
 import { useRealtimePayouts } from "@/hooks/useRealtimePayouts";
@@ -34,17 +39,43 @@ interface Transaction {
   details?: any;
 }
 
+interface GroupedWithdrawal {
+  id: string;
+  type: "withdrawal-group";
+  contractId?: string;
+  withdrawalType: "contract" | "mana";
+  amount: number;
+  count: number;
+  status: string;
+  date: Date;
+  description: string;
+  withdrawals: Transaction[];
+}
+
 const TransactionHistory = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState("all");
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   // Fetch data
   const { data: contracts, loading: contractsLoading } = useRealtimeContracts(user?.uid || null);
   const { data: payouts, loading: payoutsLoading } = useRealtimePayouts(user?.uid || null);
 
-  // Combine all transactions
-  const allTransactions: Transaction[] = React.useMemo(() => {
+  const toggleGroup = (groupId: string) => {
+    setExpandedGroups((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(groupId)) {
+        newSet.delete(groupId);
+      } else {
+        newSet.add(groupId);
+      }
+      return newSet;
+    });
+  };
+
+  // Combine all transactions and group withdrawals
+  const allTransactions: (Transaction | GroupedWithdrawal)[] = React.useMemo(() => {
     const transactions: Transaction[] = [];
 
     // Add deposits (from contracts)
@@ -61,26 +92,76 @@ const TransactionHistory = () => {
     });
 
     // Add withdrawals (from payout_queue)
+    const withdrawalTransactions: Transaction[] = [];
     payouts.forEach((payout) => {
-      transactions.push({
+      withdrawalTransactions.push({
         id: `withdrawal-${payout.id}`,
         type: "withdrawal",
         amount: payout.amount,
         status: payout.status,
         date: new Date(payout.requestedAt),
-        description: `P2P Withdrawal ${payout.withdrawalNumber}/${payout.totalWithdrawals}`,
+        description: payout.withdrawalType === "MANA_REWARDS" 
+          ? "MANA Rewards"
+          : `Withdrawal ${payout.withdrawalNumber}/${payout.totalWithdrawals}`,
         details: payout,
       });
     });
 
-    // Sort by date (newest first)
-    return transactions.sort((a, b) => b.date.getTime() - a.date.getTime());
+    // Group withdrawals by contract or type
+    const withdrawalGroups = new Map<string, Transaction[]>();
+    withdrawalTransactions.forEach((withdrawal) => {
+      const contractId = withdrawal.details?.contractId || "mana-rewards";
+      if (!withdrawalGroups.has(contractId)) {
+        withdrawalGroups.set(contractId, []);
+      }
+      withdrawalGroups.get(contractId)!.push(withdrawal);
+    });
+
+    // Create grouped withdrawals
+    const groupedWithdrawals: GroupedWithdrawal[] = [];
+    withdrawalGroups.forEach((withdrawals, key) => {
+      if (withdrawals.length > 1) {
+        // Multiple withdrawals from same source - group them
+        const totalAmount = withdrawals.reduce((sum, w) => sum + w.amount, 0);
+        const latestDate = new Date(Math.max(...withdrawals.map(w => w.date.getTime())));
+        const allCompleted = withdrawals.every(w => w.status === "completed");
+        const anyPending = withdrawals.some(w => w.status === "pending");
+        const status = allCompleted ? "completed" : anyPending ? "pending" : withdrawals[0].status;
+        
+        const isMANA = key === "mana-rewards";
+        groupedWithdrawals.push({
+          id: `group-${key}`,
+          type: "withdrawal-group",
+          contractId: isMANA ? undefined : key,
+          withdrawalType: isMANA ? "mana" : "contract",
+          amount: totalAmount,
+          count: withdrawals.length,
+          status,
+          date: latestDate,
+          description: isMANA 
+            ? `MANA Rewards (${withdrawals.length} withdrawals)`
+            : `Pooled Withdrawal (${withdrawals.length} transactions)`,
+          withdrawals: withdrawals.sort((a, b) => b.date.getTime() - a.date.getTime()),
+        });
+      } else {
+        // Single withdrawal - add as regular transaction
+        transactions.push(withdrawals[0]);
+      }
+    });
+
+    // Combine and sort by date
+    return [...transactions, ...groupedWithdrawals].sort((a, b) => b.date.getTime() - a.date.getTime());
   }, [contracts, payouts]);
 
   // Filter transactions by type
   const filteredTransactions = React.useMemo(() => {
     if (activeTab === "all") return allTransactions;
-    return allTransactions.filter((t) => t.type === activeTab);
+    return allTransactions.filter((t) => {
+      if (t.type === "withdrawal-group") {
+        return activeTab === "withdrawal";
+      }
+      return t.type === activeTab;
+    });
   }, [allTransactions, activeTab]);
 
   const getStatusBadge = (type: string, status: string) => {
@@ -173,6 +254,7 @@ const TransactionHistory = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
+
       {/* Header */}
       <header className="sticky top-0 z-50 backdrop-blur-lg bg-background/80 border-b border-border">
         <div className="max-w-3xl mx-auto flex items-center justify-between px-4 py-4">
@@ -228,117 +310,210 @@ const TransactionHistory = () => {
               <TabsTrigger value="reward">Rewards</TabsTrigger>
             </TabsList>
 
-            <TabsContent value={activeTab} className="mt-6 space-y-3">
+            <TabsContent value={activeTab} className="mt-6">
               {loading ? (
-                <Card className="border-border">
-                  <CardContent className="p-8 text-center">
-                    <IconLoader className="h-8 w-8 animate-spin text-muted-foreground mx-auto mb-2" />
-                    <p className="text-sm text-muted-foreground">Loading transactions...</p>
-                  </CardContent>
-                </Card>
+                <SkeletonList count={5} />
               ) : filteredTransactions.length === 0 ? (
-                <Card className="border-dashed border-2 border-muted">
-                  <CardContent className="p-8 text-center">
-                    <IconHistory className="mx-auto h-12 w-12 text-muted-foreground/50 mb-3" />
-                    <h3 className="text-base font-semibold text-foreground mb-1">
-                      No transactions yet
-                    </h3>
-                    <p className="text-sm text-muted-foreground">
-                      {activeTab === "all"
-                        ? "Your transaction history will appear here"
-                        : `No ${activeTab}s found`}
-                    </p>
-                  </CardContent>
+                <Card className="p-8 text-center">
+                  <div className="space-y-4">
+                    <div className="text-6xl">{activeTab === "deposit" ? "📦" : activeTab === "withdrawal" ? "💰" : "🎁"}</div>
+                    <div className="space-y-2">
+                      <h3 className="text-xl font-semibold">No {activeTab === "all" ? "Transactions" : `${activeTab}s`} Yet</h3>
+                      <p className="text-muted-foreground">
+                        {activeTab === "all"
+                          ? "Your transaction history will appear here"
+                          : `No ${activeTab}s found`}
+                      </p>
+                    </div>
+                  </div>
                 </Card>
               ) : (
-                filteredTransactions.map((transaction, index) => (
-                  <motion.div
-                    key={transaction.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.05 }}
-                  >
-                    <Card className={`border ${getTypeColor(transaction.type)}`}>
-                      <CardContent className="p-4">
-                        <div className="flex items-start gap-3">
-                          {/* Icon */}
-                          <div className="flex-shrink-0 mt-1">
-                            {getTypeIcon(transaction.type)}
-                          </div>
+                <ScrollArea className="h-[600px] w-full pr-4">
+                  <div className="space-y-3">
+                    {/* Timeline View */}
+                    {filteredTransactions.map((transaction, index) => {
+                      const isGroup = transaction.type === "withdrawal-group";
+                      const isExpanded = isGroup && expandedGroups.has(transaction.id);
+                      
+                      return (
+                        <motion.div
+                          key={transaction.id}
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: index * 0.05 }}
+                        >
+                          {/* Group Header or Single Transaction */}
+                          <Card 
+                            className={`border ${getTypeColor(isGroup ? "withdrawal" : transaction.type)} ${
+                              isGroup ? "cursor-pointer hover:shadow-md transition-shadow" : ""
+                            }`}
+                            onClick={isGroup ? () => toggleGroup(transaction.id) : undefined}
+                          >
+                            <CardContent className="p-4">
+                              <div className="flex items-start gap-4">
+                                {/* Timeline Dot */}
+                                <div className="relative">
+                                  <div className="flex-shrink-0 mt-1">
+                                    {getTypeIcon(isGroup ? "withdrawal" : transaction.type)}
+                                  </div>
+                                  {index < filteredTransactions.length - 1 && (
+                                    <div className="absolute left-1/2 top-8 bottom-0 w-0.5 bg-border -ml-px" />
+                                  )}
+                                </div>
 
-                          {/* Content */}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-start justify-between gap-2 mb-2">
-                              <div className="flex-1 min-w-0">
-                                <p className="font-semibold text-foreground text-sm truncate">
-                                  {transaction.description}
-                                </p>
-                                <p className="text-xs text-muted-foreground">
-                                  {transaction.date.toLocaleDateString()} at{" "}
-                                  {transaction.date.toLocaleTimeString()}
-                                </p>
+                                {/* Content */}
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-start justify-between gap-2 mb-2">
+                                    <div className="flex-1 min-w-0 flex items-center gap-2">
+                                      <p className="font-semibold text-foreground text-sm truncate">
+                                        {transaction.description}
+                                      </p>
+                                      {isGroup && (
+                                        <Badge variant="secondary" className="text-xs">
+                                          {transaction.count}x
+                                        </Badge>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-2 flex-shrink-0">
+                                      {getStatusBadge(isGroup ? "withdrawal" : transaction.type, transaction.status)}
+                                      {isGroup && (
+                                        <div className="text-muted-foreground">
+                                          {isExpanded ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                  
+                                  <p className="text-xs text-muted-foreground">
+                                    {(() => {
+                                      const date = transaction.date;
+                                      const now = new Date();
+                                      const diffMs = now.getTime() - date.getTime();
+                                      const diffMins = Math.floor(diffMs / 60000);
+                                      const diffHours = Math.floor(diffMs / 3600000);
+                                      const diffDays = Math.floor(diffMs / 86400000);
+                                      
+                                      if (diffMins < 1) return "Just now";
+                                      if (diffMins < 60) return `${diffMins} min${diffMins !== 1 ? 's' : ''} ago`;
+                                      if (diffHours < 24) return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+                                      if (diffDays < 7) return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
+                                      return date.toLocaleDateString();
+                                    })()}
+                                  </p>
+
+                                  <Separator className="my-2" />
+
+                                  <div className="flex items-center justify-between">
+                                    <p className="text-xs text-muted-foreground capitalize">
+                                      {isGroup ? "Withdrawal Group" : transaction.type}
+                                    </p>
+                                    <p className={`text-lg font-bold ${
+                                      isGroup || transaction.type === "withdrawal" ? "text-green-500" : "text-blue-500"
+                                    }`}>
+                                      {isGroup || transaction.type === "withdrawal" ? "+" : ""}
+                                      ₱{transaction.amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </p>
+                                  </div>
+
+                                  {/* Additional Details for non-grouped transactions */}
+                                  {!isGroup && (
+                                    <>
+                                      {transaction.type === "deposit" && transaction.details?.receiptURL && (
+                                        <div className="mt-2 pt-2 border-t border-border">
+                                          <a
+                                            href={transaction.details.receiptURL}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-xs text-primary hover:underline flex items-center gap-1"
+                                          >
+                                            <IconReceipt size={12} />
+                                            View Receipt
+                                          </a>
+                                        </div>
+                                      )}
+
+                                      {transaction.type === "withdrawal" &&
+                                        transaction.status === "pending" && (
+                                          <div className="mt-2 pt-2 border-t border-orange-500/30">
+                                            <p className="text-xs text-orange-400 flex items-center gap-1">
+                                              <IconClock size={12} />
+                                              Processing within 24 hours
+                                            </p>
+                                          </div>
+                                        )}
+
+                                      {transaction.type === "withdrawal" &&
+                                        transaction.status === "completed" &&
+                                        transaction.details?.processedAt && (
+                                          <div className="mt-2 pt-2 border-t border-green-500/30">
+                                            <p className="text-xs text-green-400 flex items-center gap-1">
+                                              <IconCircleCheck size={12} />
+                                              Completed on{" "}
+                                              {new Date(transaction.details.processedAt).toLocaleDateString()}
+                                            </p>
+                                          </div>
+                                        )}
+                                    </>
+                                  )}
+                                </div>
                               </div>
-                              <div className="flex-shrink-0">
-                                {getStatusBadge(transaction.type, transaction.status)}
-                              </div>
-                            </div>
+                            </CardContent>
+                          </Card>
 
-                            <Separator className="my-2" />
-
-                            <div className="flex items-center justify-between">
-                              <p className="text-xs text-muted-foreground capitalize">
-                                {transaction.type}
-                              </p>
-                              <p className={`text-lg font-bold ${
-                                transaction.type === "withdrawal" ? "text-green-500" : "text-blue-500"
-                              }`}>
-                                {transaction.type === "withdrawal" ? "+" : ""}₱
-                                {transaction.amount.toLocaleString()}
-                              </p>
-                            </div>
-
-                            {/* Additional Details */}
-                            {transaction.type === "deposit" && transaction.details?.receiptURL && (
-                              <div className="mt-2 pt-2 border-t border-border">
-                                <a
-                                  href={transaction.details.receiptURL}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-xs text-primary hover:underline flex items-center gap-1"
-                                >
-                                  <IconReceipt size={12} />
-                                  View Receipt
-                                </a>
-                              </div>
+                          {/* Expanded Group Details */}
+                          <AnimatePresence>
+                            {isGroup && isExpanded && (
+                              <motion.div
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: "auto" }}
+                                exit={{ opacity: 0, height: 0 }}
+                                transition={{ duration: 0.2 }}
+                                className="ml-12 mt-2 space-y-2"
+                              >
+                                {(transaction as GroupedWithdrawal).withdrawals.map((withdrawal, wIndex) => (
+                                  <Card key={withdrawal.id} className="border-l-4 border-l-green-500/50">
+                                    <CardContent className="p-3">
+                                      <div className="flex items-center justify-between mb-2">
+                                        <p className="text-sm font-medium">{withdrawal.description}</p>
+                                        {getStatusBadge("withdrawal", withdrawal.status)}
+                                      </div>
+                                      <div className="flex items-center justify-between text-xs">
+                                        <span className="text-muted-foreground">
+                                          {withdrawal.date.toLocaleString()}
+                                        </span>
+                                        <span className="font-bold text-green-500">
+                                          +₱{withdrawal.amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </span>
+                                      </div>
+                                      
+                                      {withdrawal.status === "pending" && (
+                                        <div className="mt-2 pt-2 border-t border-orange-500/30">
+                                          <p className="text-xs text-orange-400 flex items-center gap-1">
+                                            <IconClock size={12} />
+                                            Processing within 24 hours
+                                          </p>
+                                        </div>
+                                      )}
+                                      
+                                      {withdrawal.status === "completed" && withdrawal.details?.processedAt && (
+                                        <div className="mt-2 pt-2 border-t border-green-500/30">
+                                          <p className="text-xs text-green-400 flex items-center gap-1">
+                                            <IconCircleCheck size={12} />
+                                            Completed on {new Date(withdrawal.details.processedAt).toLocaleDateString()}
+                                          </p>
+                                        </div>
+                                      )}
+                                    </CardContent>
+                                  </Card>
+                                ))}
+                              </motion.div>
                             )}
-
-                            {transaction.type === "withdrawal" &&
-                              transaction.status === "pending" && (
-                                <div className="mt-2 pt-2 border-t border-orange-500/30">
-                                  <p className="text-xs text-orange-400 flex items-center gap-1">
-                                    <IconClock size={12} />
-                                    Processing within 24 hours
-                                  </p>
-                                </div>
-                              )}
-
-                            {transaction.type === "withdrawal" &&
-                              transaction.status === "completed" &&
-                              transaction.details?.processedAt && (
-                                <div className="mt-2 pt-2 border-t border-green-500/30">
-                                  <p className="text-xs text-green-400 flex items-center gap-1">
-                                    <IconCircleCheck size={12} />
-                                    Completed on{" "}
-                                    {new Date(transaction.details.processedAt).toLocaleDateString()}
-                                  </p>
-                                </div>
-                              )}
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </motion.div>
-                ))
+                          </AnimatePresence>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                </ScrollArea>
               )}
             </TabsContent>
           </Tabs>
