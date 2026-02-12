@@ -15,6 +15,31 @@ service cloud.firestore {
       allow write: if true;
     }
     
+    // Pending OTPs - Allow unauthenticated access for signup OTP verification
+    match /pendingOTPs/{otpId} {
+      // Allow anyone to create/read/update for email verification
+      allow read, write: if true;
+    }
+    
+    // Email Queue - Allow unauthenticated access for sending verification emails
+    match /emailQueue/{emailId} {
+      // Allow anyone to create email requests for signup
+      allow create: if true;
+      // Only Cloud Functions can update/delete
+      allow read, update, delete: if false;
+    }
+    
+    // Users collection - For signup process
+    match /users/{userId} {
+      // Allow checking if user exists during signup
+      allow read: if true;
+      // Allow creation during signup
+      allow create: if true;
+      // Allow authenticated users to read/update their own data
+      allow update: if request.auth != null && request.auth.uid == userId;
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+    
     // Admins collection - MUST come before catch-all rule to avoid circular dependency
     match /admins/{adminId} {
       // Allow authenticated users to read their own admin document
@@ -23,14 +48,33 @@ service cloud.firestore {
       allow write: if false;
     }
     
-    // Members collection - Allow authenticated users to access
+    // Members collection - Allow authenticated users to access, plus signup operations
     match /members/{userId} {
-      allow read, write: if request.auth != null;
+      // Allow checking if user exists during signup (unauthenticated)
+      allow read: if true;
+      // Allow creation during signup (unauthenticated)
+      allow create: if true;
+      // Allow authenticated users to read/update their own data
+      allow update: if request.auth != null && request.auth.uid == userId;
+      // Allow anyone to clear PIN lockout (for account recovery)
+      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pinLockUntil', 'failedPinAttempts']) 
+                    && request.resource.data.pinLockUntil == null 
+                    && request.resource.data.failedPinAttempts == 0;
+      allow delete: if request.auth != null && request.auth.uid == userId;
     }
     
-    // Donation Contracts - Allow authenticated users to access
+    // ODHex Members collection - For ODHex app signup/signin (custom auth)
+    match /ODHexMembers/{userId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true;
+    }
+
+    // Donation Contracts - Allow access from both Koli and ODHex apps
     match /donationContracts/{contractId} {
-      allow read, write: if request.auth != null;
+      allow read: if true;
+      allow write: if true;
     }
     
     // P2P Payout Queue - Allow authenticated users to access
@@ -91,6 +135,16 @@ service cloud.firestore {
     match /donations/{donationId} {
       allow read, write: if request.auth != null &&
         exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // ODHex Withdrawals - Allow ODHex app operations (custom auth)
+    match /odhexWithdrawals/{withdrawalId} {
+      allow read, write: if true;
+    }
+
+    // ODHex Pulls - Allow ODHex app operations (custom auth)
+    match /odhexPulls/{pullId} {
+      allow read, write: if true;
     }
     
     // Allow admins full access to remaining collections

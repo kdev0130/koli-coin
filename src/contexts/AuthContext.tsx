@@ -97,17 +97,43 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               } as UserData);
             } else {
               console.error("User document not found in Firestore");
-              setUserData(null);
-              // Sign out and redirect to login if user document doesn't exist
-              signOut(auth).then(() => {
-                window.location.href = "/signin";
-              });
+              // Set empty userData instead of null to prevent auth loops
+              setUserData({
+                uid: firebaseUser.uid,
+                email: firebaseUser.email || '',
+                balance: 0,
+                deposit: 0,
+                totalAsset: 0,
+                totalInvested: 0,
+                totalEarnings: 0,
+                role: 'member',
+                createdAt: new Date().toISOString(),
+                emailVerified: true,
+                hasPinSetup: false,
+                kycStatus: "NOT_SUBMITTED",
+                name: firebaseUser.displayName || firebaseUser.email || 'User'
+              } as UserData);
             }
             setLoading(false);
           },
           (error) => {
             console.error("Error listening to user data:", error);
-            setUserData(null);
+            // Set basic userData on error to prevent auth loops
+            setUserData({
+              uid: firebaseUser.uid,
+              email: firebaseUser.email || '',
+              balance: 0,
+              deposit: 0,
+              totalAsset: 0,
+              totalInvested: 0,
+              totalEarnings: 0,
+              role: 'member',
+              createdAt: new Date().toISOString(),
+              emailVerified: true,
+              hasPinSetup: false,
+              kycStatus: "NOT_SUBMITTED",
+              name: firebaseUser.displayName || firebaseUser.email || 'User'
+            } as UserData);
             setLoading(false);
           }
         );

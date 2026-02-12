@@ -75,7 +75,16 @@ const Dashboard = () => {
               {(() => {
                 const hour = new Date().getHours();
                 const greeting = hour < 12 ? "Good Morning" : hour < 18 ? "Good Afternoon" : "Good Evening";
-                return userData?.name ? `${greeting}, ${userData.name}!` : greeting;
+                let name = "";
+                if (userData?.firstName) {
+                  name = userData.firstName;
+                } else if (userData?.name) {
+                  name = userData.name.split(' ')[0];
+                }
+                if (name) {
+                  return <>{greeting}, <span style={{color: "#FFD700"}}>{name}</span>!</>;
+                }
+                return greeting;
               })()}
             </h1>
             <h2 className="text-xl text-muted-foreground">
@@ -180,10 +189,10 @@ const Dashboard = () => {
                     </motion.div>
                     <div>
                       <h3 className="text-xl font-bold text-foreground mb-1">
-                        MANA Daily Rewards
+                        MANA Rewards
                       </h3>
                       <p className="text-sm text-muted-foreground">
-                        Enter secret codes from Telegram to win ₱1-₱5!
+                        Enter secret codes from Telegram to claim your reward!
                       </p>
                     </div>
                   </div>

@@ -7,6 +7,7 @@ import { Toaster as SonnerToaster } from "sonner";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { AuthGuard } from "./components/AuthGuard";
 import { ScrollToTop } from "./components/ScrollToTop";
+
 import SplashScreen from "./pages/SplashScreen";
 import PlatformGate from "./pages/PlatformGate";
 import SignUp from "./pages/SignUp";
@@ -20,6 +21,9 @@ import KYCSubmission from "./pages/KYCSubmission";
 import TransactionHistory from "./pages/TransactionHistory";
 import InstallApp from "./pages/InstallApp";
 import NotFound from "./pages/NotFound";
+import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import VerifyResetOTP from "./pages/VerifyResetOTP";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
 
 const queryClient = new QueryClient();
 
@@ -118,6 +122,11 @@ function AppRoutes() {
         
         {/* Platform Gate */}
         <Route path="/gate" element={<PlatformGate />} />
+
+        {/* Forgot Password Flow */}
+        <Route path="/forgot-password" element={<PublicRoute><ForgotPasswordPage /></PublicRoute>} />
+        <Route path="/verify-reset-otp" element={<PublicRoute><VerifyResetOTP /></PublicRoute>} />
+        <Route path="/reset-password" element={<PublicRoute><ResetPasswordPage /></PublicRoute>} />
         
         {/* Auth Routes */}
         <Route path="/signup" element={<SignUp />} />

@@ -6,16 +6,54 @@ const MAX_PIN_ATTEMPTS = 3;
 const LOCKOUT_DURATION_MS = 30 * 60 * 1000; // 30 minutes
 
 /**
- * Hash a PIN using SHA-256
+ * Hash using SHA-256 (only works in secure contexts)
+ */
+async function hashPinSecure(pin: string): Promise<string | null> {
+  if (typeof crypto !== 'undefined' && crypto.subtle) {
+    try {
+      const encoder = new TextEncoder();
+      const data = encoder.encode(pin);
+      const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+      return hashHex;
+    } catch (error) {
+      return null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Simple hash function fallback for non-secure contexts
+ * Uses a basic string hashing algorithm
+ */
+function simpleHash(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  // Add some additional mixing and convert to hex
+  const mixed = Math.abs(hash * 31 + str.length * 17);
+  return mixed.toString(16).padStart(8, '0');
+}
+
+/**
+ * Hash a PIN using SHA-256 (or fallback to simple hash in non-secure contexts)
  * In production, use a more secure hashing method with salt
  */
 async function hashPin(pin: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(pin);
-  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-  return hashHex;
+  // Try secure hash first
+  const secureHash = await hashPinSecure(pin);
+  if (secureHash) {
+    return secureHash;
+  }
+  
+  // Fallback to simple hash
+  console.warn('crypto.subtle not available (non-HTTPS context), using simple hash');
+  return simpleHash(pin);
 }
 
 /**
@@ -120,7 +158,17 @@ export async function verifyPin(userId: string, pin: string): Promise<boolean> {
   }
   
   const inputHash = await hashPin(pin);
-  const isValid = inputHash === storedHash;
+  let isValid = inputHash === storedHash;
+  
+  // If hash doesn't match, try the alternative hashing method
+  // (This handles cross-context verification: SHA-256 ↔ simple hash)
+  if (!isValid) {
+    const secureHash = await hashPinSecure(pin);
+    const fallbackHash = simpleHash(pin);
+    
+    // Check if stored hash matches the alternative method
+    isValid = (storedHash === secureHash) || (storedHash === fallbackHash);
+  }
   
   if (isValid) {
     // Reset failed attempts on successful verification

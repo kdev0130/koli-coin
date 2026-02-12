@@ -6,8 +6,9 @@ import { Spotlight } from "@/components/ui/spotlight";
 import { AnimatedInput } from "@/components/ui/animated-input";
 import { KoliButton } from "@/components/ui/koli-button";
 import koliLogo from "@/assets/koli-logo.png";
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
 import { signInWithEmailAndPassword } from "firebase/auth";
+import { collection, getDocs, query, where } from "firebase/firestore";
 
 const SignIn = () => {
   const navigate = useNavigate();
@@ -17,10 +18,12 @@ const SignIn = () => {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setShowForgotPassword(false);
     
     if (!formData.email || !formData.password) {
       setError("Please fill in all fields");
@@ -29,18 +32,42 @@ const SignIn = () => {
     
     setLoading(true);
     try {
-      // Sign in with Firebase Auth
-      await signInWithEmailAndPassword(auth, formData.email, formData.password);
-      navigate("/dashboard");
+      const normalizedEmail = formData.email.trim().toLowerCase();
+      const rawEmail = formData.email.trim();
+      const membersRef = collection(db, "members");
+
+      const [normalizedSnapshot, rawSnapshot] = await Promise.all([
+        getDocs(query(membersRef, where("email", "==", normalizedEmail))),
+        normalizedEmail === rawEmail
+          ? Promise.resolve(null)
+          : getDocs(query(membersRef, where("email", "==", rawEmail))),
+      ]);
+
+      const isRegistered = !normalizedSnapshot.empty || !!rawSnapshot?.docs?.length;
+
+      if (!isRegistered) {
+        setError("This email is not registered. Please sign up first.");
+        return;
+      }
+
+      // Sign in with Firebase Auth - AuthGuard will handle navigation
+      await signInWithEmailAndPassword(auth, normalizedEmail, formData.password);
     } catch (error: any) {
       console.error("Sign in error:", error);
-      const errorMessage = error.code === "auth/user-not-found" || error.code === "auth/wrong-password"
-        ? "Invalid email or password"
-        : error.code === "auth/invalid-credential"
-        ? "Invalid email or password"
-        : error.code === "auth/too-many-requests"
-        ? "Too many failed attempts. Please try again later"
-        : "Failed to sign in. Please try again";
+          const errorCode = error?.code;
+          const isWrongPassword = errorCode === "auth/wrong-password" || errorCode === "auth/invalid-credential";
+
+          if (isWrongPassword) {
+            setShowForgotPassword(true);
+          }
+
+          const errorMessage = isWrongPassword
+            ? "Incorrect password. Use Forgot password to reset it."
+            : errorCode === "auth/user-not-found"
+            ? "This email is not registered. Please sign up first."
+            : errorCode === "auth/too-many-requests"
+            ? "Too many failed attempts. Please try again later"
+            : "Failed to sign in. Please try again";
       setError(errorMessage);
     } finally {
       setLoading(false);
@@ -50,6 +77,9 @@ const SignIn = () => {
   const handleChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
     if (error) setError("");
+    if (field === "email") {
+      setShowForgotPassword(false);
+    }
   };
 
   return (
@@ -117,20 +147,23 @@ const SignIn = () => {
             </div>
 
             {/* Forgot Password */}
-            <div className="text-right">
-              <Link
-                to="/forgot-password"
-                className="text-sm text-primary hover:underline"
-              >
-                Forgot password?
-              </Link>
-            </div>
+            {showForgotPassword && (
+              <div className="flex justify-end">
+                <Link
+                  to="/forgot-password"
+                  state={{ email: formData.email.trim().toLowerCase() }}
+                  className="text-sm font-medium text-primary hover:underline"
+                >
+                  Forgot password?
+                </Link>
+              </div>
+            )}
 
             {error && (
               <motion.p
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="text-destructive text-sm text-center"
+                className="text-destructive text-sm text-left leading-relaxed"
               >
                 {error}
               </motion.p>

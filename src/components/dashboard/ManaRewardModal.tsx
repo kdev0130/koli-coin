@@ -159,9 +159,7 @@ export const ManaRewardModal: React.FC<ManaRewardModalProps> = ({
       }
 
       // Success!
-      setRewardAmount(result.amount);
       setShowSuccess(true);
-      
       // Trigger confetti animation
       confetti({
         particleCount: 100,
@@ -169,11 +167,7 @@ export const ManaRewardModal: React.FC<ManaRewardModalProps> = ({
         origin: { y: 0.6 },
         colors: ["#FFD700", "#FFA500", "#FF6347"],
       });
-
-      toast.success("MANA Reward Claimed!", {
-        description: `You won ₱${result.amount.toFixed(2)}!`,
-      });
-
+      toast.success("MANA Reward Claimed!");
       // Close modal after delay
       setTimeout(() => {
         onClose();
@@ -272,7 +266,7 @@ export const ManaRewardModal: React.FC<ManaRewardModalProps> = ({
                 </AnimatePresence>
               </div>
 
-              <DialogFooter>
+              <DialogFooter className="flex gap-x-4">
                 <Button
                   variant="outline"
                   onClick={onClose}
@@ -331,11 +325,11 @@ export const ManaRewardModal: React.FC<ManaRewardModalProps> = ({
               <h3 className="text-2xl font-bold text-foreground mb-2">
                 Congratulations!
               </h3>
-              <p className="text-4xl font-bold text-yellow-500 mb-4">
-                ₱{rewardAmount?.toFixed(2)}
+              <p className="text-2xl font-bold text-yellow-500 mb-4">
+                MANA Reward Claimed!
               </p>
               <p className="text-sm text-muted-foreground">
-                MANA Reward has been added to your account!
+                Your reward has been added to your account!
               </p>
             </motion.div>
           )}

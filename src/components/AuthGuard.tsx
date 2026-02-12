@@ -15,14 +15,23 @@ interface AuthGuardProps {
  * 4. Redirects to login if not authenticated
  */
 export const AuthGuard: React.FC<AuthGuardProps> = ({ children }) => {
-  const { user, userData, loading } = useAuth();
+  const { user, userData, loading, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [checkingUnlock, setCheckingUnlock] = useState(true);
 
   // Public routes that don't require authentication
-  const publicRoutes = ["/signin", "/signup", "/", "/splash", "/gate"];
+  const publicRoutes = [
+    "/signin",
+    "/signup",
+    "/",
+    "/splash",
+    "/gate",
+    "/forgot-password",
+    "/verify-reset-otp",
+    "/reset-password"
+  ];
   
   // Routes that don't require PIN unlock
   const noPinRoutes = ["/pin-setup"];
@@ -33,18 +42,40 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({ children }) => {
   useEffect(() => {
     if (loading) return;
 
-    // Wait for userData to load if user is authenticated
-    if (user && !userData) return;
-
     // Not authenticated → redirect to login
     if (!user && !isPublicRoute) {
       navigate("/signin");
       return;
     }
 
-    // Authenticated but on public route → redirect to dashboard
-    if (user && isPublicRoute && location.pathname !== "/") {
+    // Authenticated but userData is still loading → wait
+    if (user && !userData) {
+      return;
+    }
+
+    // Authenticated but userData missing (doc doesn't exist) → sign out and redirect
+    if (user && userData === null && !isPublicRoute && location.pathname !== "/signin") {
+      logout().then(() => {
+        navigate("/signin");
+      });
+      return;
+    }
+
+    // Authenticated with userData and on signin page → redirect to dashboard  
+    if (user && userData && location.pathname === "/signin") {
       navigate("/dashboard");
+      return;
+    }
+
+    // Authenticated but on other public route → redirect to dashboard
+    if (user && userData && isPublicRoute && location.pathname !== "/") {
+      navigate("/dashboard");
+      return;
+    }
+
+    // Check if user needs PIN setup after KYC verification
+    if (user && userData && (userData.kycStatus === "VERIFIED" || userData.kycStatus === "APPROVED") && !userData.hasPinSetup && !isNoPinRoute) {
+      navigate("/pin-setup");
       return;
     }
 
@@ -52,7 +83,7 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({ children }) => {
     if (user && userData && userData.hasPinSetup && !isNoPinRoute) {
       // Check if we need to show PIN unlock
       const sessionUnlocked = sessionStorage.getItem(`unlocked_${user.uid}`);
-      
+
       if (sessionUnlocked === "true") {
         setIsUnlocked(true);
       } else {
@@ -64,7 +95,7 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({ children }) => {
     }
 
     setCheckingUnlock(false);
-  }, [user, userData, loading, location.pathname, navigate, isPublicRoute, isNoPinRoute]);
+  }, [user, userData, loading, location.pathname, navigate, isPublicRoute, isNoPinRoute, logout]);
 
   const handleUnlock = () => {
     if (user) {

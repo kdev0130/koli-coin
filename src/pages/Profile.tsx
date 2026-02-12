@@ -43,12 +43,14 @@ import {
   calculateTotalWithdrawable,
 } from "@/lib/donationContract";
 import { UnifiedWithdrawalModal } from "@/components/donation/UnifiedWithdrawalModal";
+import { ExternalWithdrawModal } from "@/components/donation/ExternalWithdrawModal";
 
 const Profile = () => {
   const navigate = useNavigate();
   const { userData, logout, user } = useAuth();
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [isUnifiedWithdrawalOpen, setIsUnifiedWithdrawalOpen] = useState(false);
+  const [isExternalWithdrawOpen, setIsExternalWithdrawOpen] = useState(false);
   
   // Fetch donation contracts
   const { data: contracts, loading: contractsLoading } = useRealtimeContracts(user?.uid || null);
@@ -68,7 +70,7 @@ const Profile = () => {
   // Use new pooled withdrawal calculation (includes MANA balance)
   const userBalance = userData?.balance || 0;
   const { 
-    totalAmount: totalAvailableNow, 
+    totalAmount: totalWithdrawable, 
     contractWithdrawals,
     manaBalance,
     eligibleContracts 
@@ -369,7 +371,7 @@ const Profile = () => {
                 <CardHeader className="pb-3">
                   <CardDescription className="text-xs">Available Now</CardDescription>
                   <CardTitle className="text-2xl font-bold text-green-400">
-                    ₱{contractsLoading ? "..." : totalAvailableNow.toLocaleString()}
+                    ₱{contractsLoading ? "..." : totalWithdrawable.toLocaleString()}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -403,7 +405,7 @@ const Profile = () => {
                     </div>
                     {readyToWithdrawCount > 0 && (
                       <Button
-                        onClick={() => setIsUnifiedWithdrawalOpen(true)}
+                        onClick={() => setIsExternalWithdrawOpen(true)}
                         className="w-full bg-green-600 hover:bg-green-700"
                         size="sm"
                       >
@@ -467,7 +469,7 @@ const Profile = () => {
                       </p>
                       <p className="text-xs text-muted-foreground">
                         Withdraw from {readyToWithdrawCount} contract{readyToWithdrawCount > 1 ? 's' : ''} at once. 
-                        Choose your amount or withdraw all ₱{totalAvailableNow.toLocaleString()} in one transaction.
+                        Choose your amount or withdraw all ₱{totalWithdrawable.toLocaleString()} in one transaction.
                         {manaBalance > 0 && ` Includes ₱${manaBalance.toLocaleString()} from MANA rewards.`}
                       </p>
                       <div className="flex items-center gap-2 pt-1">
@@ -499,7 +501,7 @@ const Profile = () => {
 
               {readyToWithdrawCount > 0 ? (
                 <Button
-                  onClick={() => setIsUnifiedWithdrawalOpen(true)}
+                  onClick={() => setIsExternalWithdrawOpen(true)}
                   className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold relative"
                   size="lg"
                 >
@@ -708,6 +710,17 @@ const Profile = () => {
         userData={userData}
         userId={user?.uid || ""}
         onWithdrawSuccess={handleWithdrawalSuccess}
+      />
+
+      {/* External Withdraw Modal */}
+      <ExternalWithdrawModal
+        open={isExternalWithdrawOpen}
+        onClose={() => setIsExternalWithdrawOpen(false)}
+        withdrawableAmount={totalWithdrawable}
+        onLocalWithdraw={() => {
+          setIsExternalWithdrawOpen(false);
+          setIsUnifiedWithdrawalOpen(true);
+        }}
       />
 
       {/* Bottom Navigation */}

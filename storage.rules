@@ -2,6 +2,12 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
+    // KYC documents - allow authenticated users to upload to their own folder
+    match /kyc/{userId}/{allPaths=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // General rule for other files
     match /{allPaths=**} {
       allow read, write: if request.auth != null;
     }
