@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { motion } from "motion/react";
 import { useNavigate, Link } from "react-router-dom";
 import { IconMail, IconLock } from "@tabler/icons-react";
+import { Eye, EyeOff } from "lucide-react";
 import { Spotlight } from "@/components/ui/spotlight";
 import { AnimatedInput } from "@/components/ui/animated-input";
 import { KoliButton } from "@/components/ui/koli-button";
@@ -19,6 +20,7 @@ const SignIn = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -138,12 +140,23 @@ const SignIn = () => {
                 <IconLock size={16} className="text-primary" />
                 Password
               </label>
-              <AnimatedInput
-                type="password"
-                placeholder="••••••••"
-                value={formData.password}
-                onChange={(e) => handleChange("password", e.target.value)}
-              />
+              <div className="relative">
+                <AnimatedInput
+                  type={showPassword ? "text" : "password"}
+                  placeholder="••••••••"
+                  value={formData.password}
+                  onChange={(e) => handleChange("password", e.target.value)}
+                  className="pr-12"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
             </div>
 
             {/* Forgot Password */}
@@ -178,37 +191,12 @@ const SignIn = () => {
             </KoliButton>
           </motion.form>
 
-          {/* Divider */}
-          <div className="w-full flex items-center gap-4 my-6">
-            <div className="flex-1 h-px bg-border" />
-            <span className="text-xs text-muted-foreground">or</span>
-            <div className="flex-1 h-px bg-border" />
-          </div>
-
-          {/* Demo hint */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.4 }}
-            className="w-full"
-          >
-            <KoliButton
-              variant="secondary"
-              className="w-full"
-              onClick={() => {
-                setFormData({ email: "demo@koli.io", password: "demo1234" });
-              }}
-            >
-              Use Demo Account
-            </KoliButton>
-          </motion.div>
-
           {/* Sign Up Link */}
           <motion.p
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ delay: 0.6 }}
-            className="text-center text-sm text-muted-foreground mt-6"
+            transition={{ delay: 0.4 }}
+            className="text-center text-sm text-muted-foreground mt-8"
           >
             Don't have an account?{" "}
             <Link to="/signup" className="text-primary font-medium hover:underline">
