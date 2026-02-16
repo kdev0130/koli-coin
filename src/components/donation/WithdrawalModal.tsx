@@ -100,7 +100,7 @@ export const WithdrawalModal: React.FC<WithdrawalModalProps> = ({
       await withdrawWithPin(contract.id!, userId, pin);
 
       toast.success("Withdrawal Request Submitted!", {
-        description: `₱${withdrawalAmount.toLocaleString()} will be sent to your registered account within 24 hours.`,
+        description: `${withdrawalAmount.toLocaleString()} KOLI will be sent to your registered account within 24 hours.`,
       });
 
       // Close modal and notify parent
@@ -149,7 +149,7 @@ export const WithdrawalModal: React.FC<WithdrawalModalProps> = ({
                 <div>
                   <p className="text-xs text-muted-foreground">Contract Principal</p>
                   <p className="text-lg font-bold text-foreground">
-                    ₱{contract.donationAmount.toLocaleString()}
+                    {contract.donationAmount.toLocaleString()} KOLI
                   </p>
                 </div>
                 <div className="text-right">
@@ -170,7 +170,7 @@ export const WithdrawalModal: React.FC<WithdrawalModalProps> = ({
                 <div className="flex justify-between items-end">
                   <span className="text-xs text-muted-foreground">You will receive</span>
                   <span className="text-2xl font-bold text-green-400">
-                    ₱{withdrawalAmount.toLocaleString()}
+                    {withdrawalAmount.toLocaleString()} KOLI
                   </span>
                 </div>
               </div>
@@ -178,22 +178,22 @@ export const WithdrawalModal: React.FC<WithdrawalModalProps> = ({
               <Separator />
 
               <div className="space-y-1">
-                <div className="flex justify-between text-xs">
+                  <div className="flex justify-between text-xs">
                   <span className="text-muted-foreground">Total Withdrawn</span>
                   <span className="font-medium text-blue-400">
-                    ₱{details.totalWithdrawn.toLocaleString()}
+                    {details.totalWithdrawn.toLocaleString()} KOLI
                   </span>
                 </div>
                 <div className="flex justify-between text-xs">
                   <span className="text-muted-foreground">After This Withdrawal</span>
                   <span className="font-medium text-foreground">
-                    ₱{(details.totalWithdrawn + withdrawalAmount).toLocaleString()}
+                    {(details.totalWithdrawn + withdrawalAmount).toLocaleString()} KOLI
                   </span>
                 </div>
                 <div className="flex justify-between text-xs">
                   <span className="text-muted-foreground">Remaining Potential</span>
                   <span className="font-medium text-muted-foreground">
-                    ₱{(details.totalRemaining - withdrawalAmount).toLocaleString()}
+                    {(details.totalRemaining - withdrawalAmount).toLocaleString()} KOLI
                   </span>
                 </div>
               </div>

@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import { HeaderWithdrawable } from "@/components/common/HeaderWithdrawable";
 
 const Mining = () => {
   const navigate = useNavigate();
@@ -81,6 +82,7 @@ const Mining = () => {
               <p className="text-xs text-muted-foreground">Mining</p>
             </div>
           </div>
+          <HeaderWithdrawable />
         </div>
       </motion.header>
 

@@ -84,6 +84,8 @@ export async function submitKyc(
     kycSubmittedAt: new Date().toISOString(),
     kycIdImageURL: imageURL,
     kycIdImagePath: fileName,
+    kycRejectionReason: null,
+    kycVerifiedAt: null,
   };
   
   // Only add kycAutoCaptured if there's actual data

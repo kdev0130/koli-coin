@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -7,9 +7,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { IconExternalLink, IconWallet, IconLoader, IconLock } from "@tabler/icons-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Badge } from "@/components/ui/badge";
+import { toast } from "sonner";
+import { canUserWithdraw } from "@/lib/kycService";
+import { validatePinFormat, verifyPin } from "@/lib/pinSecurity";
 import odhexLogo from "@/assets/odhex-logo.png";
 import binanceLogo from "@/assets/binance.png";
 import coinbaseLogo from "@/assets/coinbase.png";
@@ -20,20 +26,78 @@ interface ExternalWithdrawModalProps {
   open: boolean;
   onClose: () => void;
   withdrawableAmount: number;
-  onLocalWithdraw: () => void;
 }
 
 export const ExternalWithdrawModal: React.FC<ExternalWithdrawModalProps> = ({
   open,
   onClose,
   withdrawableAmount,
-  onLocalWithdraw,
 }) => {
-  const { user } = useAuth();
+  const { user, userData } = useAuth();
   const [checking, setChecking] = useState(false);
+  const [pin, setPin] = useState("");
+  const [isPinVerified, setIsPinVerified] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      setPin("");
+      setPinError(null);
+      setIsPinVerified(false);
+      setChecking(false);
+    }
+  }, [open]);
+
+  const handlePinChange = (value: string) => {
+    const cleaned = value.replace(/\D/g, "").slice(0, 6);
+    setPin(cleaned);
+    setPinError(null);
+  };
+
+  const handleVerifyPin = async () => {
+    if (!user?.uid) {
+      setPinError("User session not found. Please sign in again.");
+      return;
+    }
+
+    if (!userData?.hasPinSetup) {
+      setPinError("PIN is not set up yet for this account.");
+      return;
+    }
+
+    const validation = validatePinFormat(pin);
+    if (!validation.valid) {
+      setPinError(validation.error || "Invalid PIN format");
+      return;
+    }
+
+    try {
+      setChecking(true);
+      const valid = await verifyPin(user.uid, pin);
+
+      if (!valid) {
+        setPinError("Incorrect PIN.");
+        return;
+      }
+
+      setIsPinVerified(true);
+      toast.success("PIN verified");
+    } catch (error: any) {
+      console.error("PIN verification failed:", error);
+      setPinError(error?.message || "Failed to verify PIN.");
+    } finally {
+      setChecking(false);
+    }
+  };
 
   const handleODHexWithdrawal = () => {
     if (!user?.email) return;
+
+    const kyc = canUserWithdraw(userData);
+    if (!kyc.canWithdraw) {
+      toast.error(kyc.reason || "KYC verification required before withdrawal.");
+      return;
+    }
     
     setChecking(true);
     
@@ -60,23 +124,75 @@ export const ExternalWithdrawModal: React.FC<ExternalWithdrawModalProps> = ({
       timestamp: new Date().toISOString(),
     });
     
-    // Always redirect to signup page - ODHex will handle existing users
-    const targetUrl = `${odhexBaseUrl}/signup?${params.toString()}`;
+    // Route to ODHex authentication first (SignIn/SignUp flow), then authorize
+    const targetUrl = `${odhexBaseUrl}/signin?${params.toString()}`;
     
-    // Redirect to ODHex (same tab for mobile compatibility)
-    window.location.href = targetUrl;
+    // Open ODHex in a new tab
+    window.open(targetUrl, "_blank", "noopener,noreferrer");
+    onClose();
+    setChecking(false);
   };
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Choose Exchange Platform</DialogTitle>
+          <DialogTitle>{isPinVerified ? "Choose Exchange Platform" : "Verify PIN"}</DialogTitle>
           <DialogDescription>
-            Select an external exchanger to withdraw your ₱{withdrawableAmount.toFixed(2)} KOLI coins
+            {isPinVerified
+              ? `Select an external exchanger to withdraw your ${withdrawableAmount.toFixed(2)} KOLI coins`
+              : "Enter your 6-digit PIN to continue with withdrawal."}
           </DialogDescription>
         </DialogHeader>
 
+        {!isPinVerified ? (
+          <div className="space-y-4 mt-4">
+            <div className="space-y-2">
+              <Label htmlFor="withdraw-pin" className="flex items-center gap-2">
+                <IconLock className="w-4 h-4" />
+                6-Digit PIN
+              </Label>
+              <Input
+                id="withdraw-pin"
+                type="password"
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={6}
+                placeholder="Enter your PIN"
+                value={pin}
+                onChange={(e) => handlePinChange(e.target.value)}
+                disabled={checking}
+                className="text-lg tracking-widest"
+              />
+              <p className="text-xs text-muted-foreground">{pin.length}/6 digits</p>
+            </div>
+
+            {pinError && (
+              <Alert variant="destructive">
+                <AlertDescription>{pinError}</AlertDescription>
+              </Alert>
+            )}
+
+            <Button
+              onClick={handleVerifyPin}
+              disabled={checking || pin.length !== 6}
+              className="w-full"
+            >
+              {checking ? (
+                <span className="flex items-center gap-2">
+                  <IconLoader className="w-4 h-4 animate-spin" />
+                  Verifying PIN...
+                </span>
+              ) : (
+                <span className="flex items-center gap-2">
+                  <IconLock className="w-4 h-4" />
+                  Continue
+                </span>
+              )}
+            </Button>
+          </div>
+        ) : (
+          <>
         <div className="space-y-3 mt-4">
           {/* ODHex - Available */}
           <div 
@@ -151,6 +267,8 @@ export const ExternalWithdrawModal: React.FC<ExternalWithdrawModalProps> = ({
             <strong>Note:</strong> ODHex is currently the only available exchange partner. More platforms will be added soon. Your withdrawal amount will be transferred to your selected exchange account.
           </p>
         </div>
+          </>
+        )}
       </DialogContent>
     </Dialog>
   );

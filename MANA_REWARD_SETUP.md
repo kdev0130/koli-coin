@@ -189,6 +189,41 @@ firebase functions:log --only claimManaReward
 # Check remainingPool field
 ```
 
+## Admin Cleanup (Deactivated Reward)
+
+If test MANA balance is still showing after deactivating rewards, use the admin-only cleanup function.
+
+### 1) Deploy function
+
+```bash
+firebase deploy --only functions:cleanupManaBalances
+```
+
+### 2) Run dry-run first (required confirmation key)
+
+Send a `POST` request with your Firebase ID token in `Authorization: Bearer <token>`:
+
+```json
+{
+  "confirm": "ZERO_MANA_BALANCES",
+  "dryRun": true
+}
+```
+
+### 3) Execute actual cleanup
+
+```json
+{
+  "confirm": "ZERO_MANA_BALANCES",
+  "dryRun": false
+}
+```
+
+### Notes
+- Only users in the `admins` collection can execute this function.
+- Cleanup is blocked while reward is active (unless `force: true` is provided).
+- Cleanup logs are written to `manaBalanceCleanupLogs`.
+
 ## Troubleshooting
 
 ### "Missing or insufficient permissions"

@@ -51,6 +51,12 @@ interface UserData {
   
   // Manual/Editable fields
   kycManualData?: {
+    fullLegalName?: string;
+    dateOfBirth?: string;
+    idNumber?: string;
+    nationality?: string;
+    idType?: string;
+    idExpirationDate?: string;
     address?: string;
     phoneNumber?: string;
     emergencyContact?: string;
@@ -61,6 +67,10 @@ interface UserData {
   hasFundingPassword?: boolean;
   totalReferrals?: number;
   platformCode?: string;
+  platformCodeId?: string;
+  leaderId?: string;
+  leaderName?: string;
+  joinedUnderLeaderAt?: string;
 }
 
 interface AuthContextType {

@@ -20,9 +20,12 @@ interface AddDonationModalProps {
 
 export const AddDonationModal: React.FC<AddDonationModalProps> = ({ open, onClose }) => {
   const { user } = useAuth();
+  const eWalletOptions = ["GCash", "Maya", "GrabPay", "ShopeePay"];
+  const bankOptions = ["BPI", "BDO", "UnionBank", "Metrobank", "LandBank"];
   const [step, setStep] = useState(1);
   const [amount, setAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("");
+  const [paymentService, setPaymentService] = useState("");
   const [receipt, setReceipt] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -117,6 +120,10 @@ export const AddDonationModal: React.FC<AddDonationModalProps> = ({ open, onClos
       toast.error("Please select a payment method");
       return;
     }
+    if (!paymentService) {
+      toast.error("Please select a payment option");
+      return;
+    }
     setStep(2);
   };
 
@@ -169,11 +176,13 @@ export const AddDonationModal: React.FC<AddDonationModalProps> = ({ open, onClos
       
       console.log("Receipt uploaded successfully:", receiptURL);
 
+      const paymentDetails = paymentService ? `${paymentMethod}:${paymentService}` : paymentMethod;
+
       // Create donation contract using the new contract system
       await donate(
         user?.uid || "",
         parseFloat(amount),
-        paymentMethod,
+        paymentDetails,
         receiptURL,
         fileName
       );
@@ -185,6 +194,7 @@ export const AddDonationModal: React.FC<AddDonationModalProps> = ({ open, onClos
       // Reset form
       setAmount("");
       setPaymentMethod("");
+      setPaymentService("");
       setReceipt(null);
       setStep(1);
       onClose();
@@ -222,13 +232,14 @@ export const AddDonationModal: React.FC<AddDonationModalProps> = ({ open, onClos
     setStep(1);
     setAmount("");
     setPaymentMethod("");
+    setPaymentService("");
     setReceipt(null);
     onClose();
   };
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-[500px] bg-background border-border">
+      <DialogContent className="sm:max-w-[500px] max-h-[85vh] overflow-y-auto bg-background border-border">
         <DialogHeader>
           <DialogTitle className="text-2xl font-bold text-foreground flex items-center gap-2">
             <IconCoins className="text-primary" size={28} />
@@ -265,16 +276,49 @@ export const AddDonationModal: React.FC<AddDonationModalProps> = ({ open, onClos
               {/* Payment Method */}
               <div className="space-y-2">
                 <Label className="text-sm font-medium">Payment Method</Label>
-                <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                <Select
+                  value={paymentMethod}
+                  onValueChange={(value) => {
+                    setPaymentMethod(value);
+                    setPaymentService("");
+                  }}
+                >
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select payment method" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="gcash">GCash</SelectItem>
+                    <SelectItem value="gcash">E-Wallet</SelectItem>
                     <SelectItem value="bank">Bank Transfer</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
+
+              {/* Payment Option */}
+              {paymentMethod && (
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">
+                    {paymentMethod === "gcash" ? "E-Wallet Service" : "Bank"}
+                  </Label>
+                  <Select value={paymentService} onValueChange={setPaymentService}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue
+                        placeholder={
+                          paymentMethod === "gcash"
+                            ? "Select e-wallet service"
+                            : "Select bank"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(paymentMethod === "gcash" ? eWalletOptions : bankOptions).map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {option}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               {/* Real-time Math Improvement */}
               <AnimatePresence>
@@ -293,7 +337,7 @@ export const AddDonationModal: React.FC<AddDonationModalProps> = ({ open, onClos
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">Principal (Never Reduces):</span>
                       <span className="font-bold text-foreground">
-                        ₱{parseFloat(amount).toLocaleString()}
+                        {parseFloat(amount).toLocaleString()} KOLI
                       </span>
                     </div>
 
@@ -315,7 +359,7 @@ export const AddDonationModal: React.FC<AddDonationModalProps> = ({ open, onClos
                         <span>Per Withdrawal (30%):</span>
                       </div>
                       <span className="font-bold text-green-500">
-                        ₱{getWithdrawableAmount()}
+                        {getWithdrawableAmount()} KOLI
                       </span>
                     </div>
 
@@ -329,7 +373,7 @@ export const AddDonationModal: React.FC<AddDonationModalProps> = ({ open, onClos
                     <div className="flex items-center justify-between text-xs pt-2 border-t border-border">
                       <span className="text-muted-foreground">Max Total Withdrawal:</span>
                       <span className="font-bold text-primary">
-                        ₱{getTotalWithdrawable()}
+                        {getTotalWithdrawable()} KOLI
                       </span>
                     </div>
 
@@ -348,7 +392,7 @@ export const AddDonationModal: React.FC<AddDonationModalProps> = ({ open, onClos
                 onClick={handleNext} 
                 className="w-full" 
                 size="lg"
-                disabled={!amount || !paymentMethod}
+                disabled={!amount || !paymentMethod || !paymentService}
               >
                 Continue to Payment
               </Button>
@@ -359,7 +403,7 @@ export const AddDonationModal: React.FC<AddDonationModalProps> = ({ open, onClos
               {/* Payment Instructions */}
               <div className="p-4 bg-primary/10 border border-primary/20 rounded-lg space-y-3">
                 <p className="text-sm font-bold text-foreground">
-                  Send ₱{parseFloat(amount).toLocaleString()} to:
+                  Send {parseFloat(amount).toLocaleString()} KOLI to:
                 </p>
                 <div className="flex justify-between items-center gap-3">
                   <code className="text-lg font-mono font-bold text-primary flex-1">

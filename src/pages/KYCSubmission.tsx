@@ -19,6 +19,7 @@ import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { submitKyc, KYCManualData } from "@/lib/kycService";
 import { useAuth } from "@/contexts/AuthContext";
+import { HeaderWithdrawable } from "@/components/common/HeaderWithdrawable";
 
 export const KYCSubmission = () => {
   const navigate = useNavigate();
@@ -134,14 +135,8 @@ export const KYCSubmission = () => {
       toast.success("KYC submitted successfully!", {
         description: "Your submission is being reviewed by our team.",
       });
-      
-      // Check if user needs to set up PIN
-      if (!userData?.hasPinSetup) {
-        toast.info("Please set up your security PIN");
-        navigate("/pin-setup");
-      } else {
-        navigate("/profile");
-      }
+
+      navigate("/profile");
     } catch (error: any) {
       console.error("KYC submission error:", error);
       toast.error(error.message || "Failed to submit KYC");
@@ -150,8 +145,11 @@ export const KYCSubmission = () => {
     }
   };
 
-  // Check if already submitted
-  const hasSubmitted = userData?.kycStatus && userData.kycStatus !== "NOT_SUBMITTED";
+  // Block only when currently pending or already approved/verified.
+  // Rejected users must be able to re-apply.
+  const hasSubmitted = userData?.kycStatus &&
+    userData.kycStatus !== "NOT_SUBMITTED" &&
+    userData.kycStatus !== "REJECTED";
 
   if (hasSubmitted) {
     return (
@@ -198,7 +196,7 @@ export const KYCSubmission = () => {
             <img src={koliLogo} alt="KOLI" className="w-6 h-6" />
             <span className="font-bold text-koli-gold">KYC Verification</span>
           </div>
-          <div className="w-16" />
+          <HeaderWithdrawable />
         </div>
       </header>
 

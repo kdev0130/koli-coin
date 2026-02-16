@@ -2,7 +2,7 @@
 import emailOTPService from './emailOTPService';
 import { auth, db } from '../lib/firebase';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
-import { doc, setDoc, getDoc, collection, query, where, getDocs, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, getDoc, collection, query, where, getDocs, serverTimestamp, updateDoc, increment } from 'firebase/firestore';
 
 interface PendingSignUp {
   email: string;
@@ -10,6 +10,10 @@ interface PendingSignUp {
   lastName: string;
   password: string;
   referralCode?: string;
+  platformCodeId?: string;
+  platformCode?: string;
+  leaderId?: string;
+  leaderName?: string;
   otpVerified: boolean;
   otpId: string;
   createdAt: number;
@@ -23,6 +27,10 @@ interface EmailVerificationServiceInterface {
     lastName: string;
     password: string;
     referralCode?: string;
+    platformCodeId?: string;
+    platformCode?: string;
+    leaderId?: string;
+    leaderName?: string;
   }): Promise<{
     success: boolean;
     sessionId?: string;
@@ -117,6 +125,10 @@ class EmailVerificationService implements EmailVerificationServiceInterface {
     lastName: string;
     password: string;
     referralCode?: string;
+    platformCodeId?: string;
+    platformCode?: string;
+    leaderId?: string;
+    leaderName?: string;
   }): Promise<{ 
     success: boolean; 
     sessionId?: string; 
@@ -194,6 +206,10 @@ class EmailVerificationService implements EmailVerificationServiceInterface {
         lastName: signUpData.lastName,
         password: signUpData.password,
         referralCode: signUpData.referralCode,
+        platformCodeId: signUpData.platformCodeId,
+        platformCode: signUpData.platformCode,
+        leaderId: signUpData.leaderId,
+        leaderName: signUpData.leaderName,
         otpVerified: false,
         otpId: result.otpId,
         createdAt: Date.now(),
@@ -369,6 +385,11 @@ class EmailVerificationService implements EmailVerificationServiceInterface {
         lastName: pendingSignUp.lastName,
         emailVerified: true,
         referralCode: pendingSignUp.referralCode || null,
+        platformCodeId: pendingSignUp.platformCodeId || null,
+        platformCode: pendingSignUp.platformCode || null,
+        leaderId: pendingSignUp.leaderId || null,
+        leaderName: pendingSignUp.leaderName || null,
+        joinedUnderLeaderAt: (pendingSignUp.leaderId || pendingSignUp.platformCodeId) ? serverTimestamp() : null,
         createdAt: serverTimestamp(),
         profile: {
           displayName: `${pendingSignUp.firstName} ${pendingSignUp.lastName}`,
@@ -447,6 +468,19 @@ class EmailVerificationService implements EmailVerificationServiceInterface {
         }
         
         throw new Error(`Failed to save user to database: ${firestoreError.message}`);
+      }
+
+      // Step 3.5: Increment platform code usage count (best effort)
+      if (pendingSignUp.platformCodeId) {
+        try {
+          const platformCodeRef = doc(db, 'platformCodes', pendingSignUp.platformCodeId);
+          await updateDoc(platformCodeRef, {
+            usageCount: increment(1),
+            lastUsedAt: serverTimestamp(),
+          });
+        } catch (platformCodeError) {
+          console.error('Platform code usage update failed:', platformCodeError);
+        }
       }
 
       // Step 3: Handle referral code if provided

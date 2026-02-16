@@ -2,7 +2,7 @@ import React, { useEffect } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster as SonnerToaster } from "sonner";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { AuthGuard } from "./components/AuthGuard";
@@ -27,45 +27,43 @@ import ResetPasswordPage from "./pages/ResetPasswordPage";
 
 const queryClient = new QueryClient();
 
-// Check if running as PWA
-const useIsPWA = () => {
-  const [isPWA, setIsPWA] = React.useState<boolean | null>(null);
+// Check install gate status (mobile browser vs standalone PWA)
+const useInstallGate = () => {
+  const [status, setStatus] = React.useState<{
+    ready: boolean;
+    isMobile: boolean;
+    isStandalone: boolean;
+  }>({
+    ready: false,
+    isMobile: false,
+    isStandalone: false,
+  });
 
   React.useEffect(() => {
-    // Multiple checks for better iOS compatibility
-    const checkPWA = () => {
-      const isStandalone = 
+    const checkInstallContext = () => {
+      const isStandalone =
         window.matchMedia('(display-mode: standalone)').matches ||
         (window.navigator as any).standalone === true ||
         document.referrer.includes('android-app://') ||
         window.matchMedia('(display-mode: fullscreen)').matches;
-      
-      setIsPWA(isStandalone);
+
+      const userAgent = window.navigator.userAgent.toLowerCase();
+      const isMobile = /android|iphone|ipad|ipod/.test(userAgent);
+
+      setStatus({
+        ready: true,
+        isMobile,
+        isStandalone,
+      });
     };
 
-    // Immediate check
-    checkPWA();
+    checkInstallContext();
 
-    // Also check after a short delay for iOS
-    const timer = setTimeout(checkPWA, 100);
+    const timer = setTimeout(checkInstallContext, 100);
     return () => clearTimeout(timer);
   }, []);
 
-  return isPWA;
-};
-
-// Root Landing - shows install page or splash based on PWA mode
-const RootLanding = () => {
-  const isPWA = useIsPWA();
-
-  // Loading state
-  if (isPWA === null) {
-    return null;
-  }
-
-  // TEMPORARILY DISABLED: Show install page if not installed, otherwise splash screen
-  // return isPWA ? <SplashScreen /> : <InstallApp />;
-  return <SplashScreen />;
+  return status;
 };
 
 // Protected Route Component
@@ -100,19 +98,20 @@ const PublicRoute = ({ children }: { children: React.ReactNode }) => {
 };
 
 function AppRoutes() {
-  const isPWA = useIsPWA();
+  const { ready, isMobile, isStandalone } = useInstallGate();
 
-  // TEMPORARILY DISABLED: If not a PWA and trying to access any route, show install page
-  // if (isPWA === false) {
-  //   return <InstallApp />;
-  // }
-
-  // If still checking PWA status, show nothing
-  if (isPWA === null) {
+  // If still checking install context, show nothing
+  if (!ready) {
     return null;
   }
 
-  // PWA mode - show full app with auth
+  // Mobile browsers must install/open as standalone PWA before app access.
+  // Desktop/web browsers continue directly without install wall.
+  if (isMobile && !isStandalone) {
+    return <InstallApp />;
+  }
+
+  // Installed PWA (mobile) or desktop/web mode - show full app with auth
   return (
     <AuthGuard>
       <ScrollToTop />

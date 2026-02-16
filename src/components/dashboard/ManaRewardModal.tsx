@@ -159,6 +159,7 @@ export const ManaRewardModal: React.FC<ManaRewardModalProps> = ({
       }
 
       // Success!
+      setRewardAmount(typeof result.amount === "number" ? result.amount : null);
       setShowSuccess(true);
       // Trigger confetti animation
       confetti({
@@ -167,7 +168,11 @@ export const ManaRewardModal: React.FC<ManaRewardModalProps> = ({
         origin: { y: 0.6 },
         colors: ["#FFD700", "#FFA500", "#FF6347"],
       });
-      toast.success("MANA Reward Claimed!");
+      toast.success("MANA Reward Claimed!", {
+        description: typeof result.amount === "number"
+          ? `You received ${result.amount.toFixed(2)} KOLI`
+          : "Your reward has been added to your account",
+      });
       // Close modal after delay
       setTimeout(() => {
         onClose();
@@ -245,7 +250,7 @@ export const ManaRewardModal: React.FC<ManaRewardModalProps> = ({
                     maxLength={20}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Codes are case-insensitive and distributed via Telegram
+                    Codes are distributed via Telegram
                   </p>
                 </div>
 
@@ -328,6 +333,11 @@ export const ManaRewardModal: React.FC<ManaRewardModalProps> = ({
               <p className="text-2xl font-bold text-yellow-500 mb-4">
                 MANA Reward Claimed!
               </p>
+              {rewardAmount !== null && (
+                <p className="text-lg font-semibold text-foreground mb-2">
+                  You received {rewardAmount.toFixed(2)} KOLI
+                </p>
+              )}
               <p className="text-sm text-muted-foreground">
                 Your reward has been added to your account!
               </p>

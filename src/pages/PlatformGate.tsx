@@ -9,6 +9,9 @@ import koliLogo from "@/assets/koli-logo.png";
 import { db } from "@/lib/firebase";
 import { collection, query, where, getDocs } from "firebase/firestore";
 
+const PLATFORM_ACCEPTED_KEY = "koli_platform_accepted";
+const PLATFORM_ACCESS_KEY = "koli_platform_access";
+
 const PlatformGate = () => {
   const navigate = useNavigate();
   const [code, setCode] = useState("");
@@ -31,8 +34,28 @@ const PlatformGate = () => {
       const querySnapshot = await getDocs(q);
 
       if (!querySnapshot.empty) {
-        // Valid code found
-        localStorage.setItem("koli_platform_accepted", "true");
+        const codeDoc = querySnapshot.docs[0];
+        const codeData = codeDoc.data();
+        const maxUses = codeData.maxUses;
+        const usageCount = Number(codeData.usageCount || 0);
+
+        if (maxUses !== null && typeof maxUses === "number" && usageCount >= maxUses) {
+          setError("This platform code has reached its maximum number of uses.");
+          return;
+        }
+
+        // Valid code found - persist accepted access + leader metadata for signup
+        localStorage.setItem(PLATFORM_ACCEPTED_KEY, "true");
+        localStorage.setItem(
+          PLATFORM_ACCESS_KEY,
+          JSON.stringify({
+            platformCodeId: codeDoc.id,
+            platformCode: String(codeData.code || code.toUpperCase()),
+            leaderId: codeData.leaderId || null,
+            leaderName: codeData.leaderName || null,
+            validatedAt: Date.now(),
+          })
+        );
         navigate("/signup");
       } else {
         setError("Invalid community code. Please contact your leader.");

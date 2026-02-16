@@ -25,9 +25,20 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SkeletonList } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { storage } from "@/lib/firebase";
+import { getDownloadURL, ref as storageRef } from "firebase/storage";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRealtimeContracts } from "@/hooks/useRealtimeContracts";
 import { useRealtimePayouts } from "@/hooks/useRealtimePayouts";
+import { useRealtimeRewardsHistory } from "@/hooks/useRealtimeRewardsHistory";
+import { HeaderWithdrawable } from "@/components/common/HeaderWithdrawable";
 
 interface Transaction {
   id: string;
@@ -57,10 +68,16 @@ const TransactionHistory = () => {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState("all");
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [isReceiptOpen, setIsReceiptOpen] = useState(false);
+  const [selectedReceiptUrl, setSelectedReceiptUrl] = useState<string | null>(null);
+  const [selectedReceiptPath, setSelectedReceiptPath] = useState<string | null>(null);
+  const [isReceiptLoading, setIsReceiptLoading] = useState(false);
+  const [receiptError, setReceiptError] = useState<string | null>(null);
 
   // Fetch data
   const { data: contracts, loading: contractsLoading } = useRealtimeContracts(user?.uid || null);
   const { data: payouts, loading: payoutsLoading } = useRealtimePayouts(user?.uid || null);
+  const { data: rewards, loading: rewardsLoading } = useRealtimeRewardsHistory(user?.uid || null);
 
   const toggleGroup = (groupId: string) => {
     setExpandedGroups((prev) => {
@@ -86,7 +103,7 @@ const TransactionHistory = () => {
         amount: contract.donationAmount,
         status: contract.status,
         date: new Date(contract.createdAt),
-        description: `Donation Contract - ₱${contract.donationAmount.toLocaleString()}`,
+        description: `Donation Contract - ${contract.donationAmount.toLocaleString()} KOLI`,
         details: contract,
       });
     });
@@ -104,6 +121,29 @@ const TransactionHistory = () => {
           ? "MANA Rewards"
           : `Withdrawal ${payout.withdrawalNumber}/${payout.totalWithdrawals}`,
         details: payout,
+      });
+    });
+
+    // Add rewards (from rewardsHistory)
+    rewards.forEach((reward) => {
+      const claimedAt = reward.claimedAt;
+      const date =
+        typeof claimedAt?.toDate === "function"
+          ? claimedAt.toDate()
+          : typeof claimedAt?.seconds === "number"
+            ? new Date(claimedAt.seconds * 1000)
+            : reward.claimedDate
+              ? new Date(reward.claimedDate)
+              : new Date();
+
+      transactions.push({
+        id: `reward-${reward.id}`,
+        type: "reward",
+        amount: reward.amount,
+        status: "completed",
+        date,
+        description: "MANA Reward Claimed",
+        details: reward,
       });
     });
 
@@ -151,7 +191,7 @@ const TransactionHistory = () => {
 
     // Combine and sort by date
     return [...transactions, ...groupedWithdrawals].sort((a, b) => b.date.getTime() - a.date.getTime());
-  }, [contracts, payouts]);
+  }, [contracts, payouts, rewards]);
 
   // Filter transactions by type
   const filteredTransactions = React.useMemo(() => {
@@ -184,6 +224,12 @@ const TransactionHistory = () => {
           return (
             <Badge className="bg-blue-500 text-white">
               <IconCircleCheck size={12} className="mr-1" /> Completed
+            </Badge>
+          );
+        case "rejected":
+          return (
+            <Badge className="bg-red-500 text-white">
+              <IconAlertCircle size={12} className="mr-1" /> Rejected
             </Badge>
           );
         default:
@@ -221,6 +267,14 @@ const TransactionHistory = () => {
       }
     }
 
+    if (type === "reward") {
+      return (
+        <Badge className="bg-yellow-500 text-black">
+          <IconCircleCheck size={12} className="mr-1" /> Completed
+        </Badge>
+      );
+    }
+
     return <Badge variant="outline">{status}</Badge>;
   };
 
@@ -237,7 +291,11 @@ const TransactionHistory = () => {
     }
   };
 
-  const getTypeColor = (type: string) => {
+  const getTypeColor = (type: string, status?: string) => {
+    if (type === "deposit" && status === "rejected") {
+      return "border-red-500/40 bg-red-500/5";
+    }
+
     switch (type) {
       case "deposit":
         return "border-blue-500/30 bg-blue-500/5";
@@ -250,22 +308,56 @@ const TransactionHistory = () => {
     }
   };
 
-  const loading = contractsLoading || payoutsLoading;
+  const loading = contractsLoading || payoutsLoading || rewardsLoading;
+
+  const openReceiptModal = async (url?: string, path?: string) => {
+    setSelectedReceiptUrl(null);
+    setSelectedReceiptPath(path || null);
+    setReceiptError(null);
+    setIsReceiptOpen(true);
+    setIsReceiptLoading(true);
+
+    try {
+      let resolvedUrl = url || "";
+
+      if (path) {
+        resolvedUrl = await getDownloadURL(storageRef(storage, path));
+      }
+
+      if (!resolvedUrl) {
+        throw new Error("Receipt URL is missing");
+      }
+
+      setSelectedReceiptUrl(resolvedUrl);
+    } catch (error) {
+      console.error("Failed to resolve receipt image:", error);
+      if (url) {
+        setSelectedReceiptUrl(url);
+        setReceiptError("Could not generate secure image URL from path. Showing fallback URL.");
+      } else {
+        setReceiptError("Unable to load receipt preview. Please try again later.");
+      }
+    } finally {
+      setIsReceiptLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
 
       {/* Header */}
       <header className="sticky top-0 z-50 backdrop-blur-lg bg-background/80 border-b border-border">
-        <div className="max-w-3xl mx-auto flex items-center justify-between px-4 py-4">
+        <div className="max-w-3xl mx-auto grid grid-cols-[40px_1fr_88px] items-center gap-2 px-4 py-4">
           <button
             onClick={() => navigate(-1)}
-            className="p-2 rounded-lg transition-colors hover:bg-secondary"
+            className="h-10 w-10 p-2 rounded-lg transition-colors hover:bg-secondary"
           >
             <IconArrowLeft size={20} />
           </button>
-          <h1 className="text-lg font-bold text-foreground">Transaction History</h1>
-          <div className="w-8" /> {/* Spacer for alignment */}
+          <h1 className="text-lg font-bold text-foreground text-center truncate">Transaction History</h1>
+          <div className="flex justify-end">
+            <HeaderWithdrawable />
+          </div>
         </div>
       </header>
 
@@ -295,7 +387,7 @@ const TransactionHistory = () => {
             <Card className="border-yellow-500/30 bg-yellow-500/5">
               <CardContent className="p-3 text-center">
                 <IconTrendingUp className="h-6 w-6 text-yellow-500 mx-auto mb-2" />
-                <p className="text-2xl font-bold text-foreground">0</p>
+                <p className="text-2xl font-bold text-foreground">{rewards.length}</p>
                 <p className="text-xs text-muted-foreground">Rewards</p>
               </CardContent>
             </Card>
@@ -328,7 +420,7 @@ const TransactionHistory = () => {
                   </div>
                 </Card>
               ) : (
-                <ScrollArea className="h-[600px] w-full pr-4">
+                <ScrollArea className="h-[calc(100vh-260px)] md:h-[600px] w-full pr-1 md:pr-4">
                   <div className="space-y-3">
                     {/* Timeline View */}
                     {filteredTransactions.map((transaction, index) => {
@@ -344,13 +436,13 @@ const TransactionHistory = () => {
                         >
                           {/* Group Header or Single Transaction */}
                           <Card 
-                            className={`border ${getTypeColor(isGroup ? "withdrawal" : transaction.type)} ${
+                            className={`border ${getTypeColor(isGroup ? "withdrawal" : transaction.type, transaction.status)} ${
                               isGroup ? "cursor-pointer hover:shadow-md transition-shadow" : ""
                             }`}
                             onClick={isGroup ? () => toggleGroup(transaction.id) : undefined}
                           >
                             <CardContent className="p-4">
-                              <div className="flex items-start gap-4">
+                              <div className="flex items-start gap-3 sm:gap-4">
                                 {/* Timeline Dot */}
                                 <div className="relative">
                                   <div className="flex-shrink-0 mt-1">
@@ -363,9 +455,9 @@ const TransactionHistory = () => {
 
                                 {/* Content */}
                                 <div className="flex-1 min-w-0">
-                                  <div className="flex items-start justify-between gap-2 mb-2">
-                                    <div className="flex-1 min-w-0 flex items-center gap-2">
-                                      <p className="font-semibold text-foreground text-sm truncate">
+                                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between mb-2">
+                                    <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
+                                      <p className="font-semibold text-foreground text-sm break-words leading-snug">
                                         {transaction.description}
                                       </p>
                                       {isGroup && (
@@ -374,7 +466,7 @@ const TransactionHistory = () => {
                                         </Badge>
                                       )}
                                     </div>
-                                    <div className="flex items-center gap-2 flex-shrink-0">
+                                    <div className="flex items-center gap-2 flex-shrink-0 self-start">
                                       {getStatusBadge(isGroup ? "withdrawal" : transaction.type, transaction.status)}
                                       {isGroup && (
                                         <div className="text-muted-foreground">
@@ -403,15 +495,26 @@ const TransactionHistory = () => {
 
                                   <Separator className="my-2" />
 
-                                  <div className="flex items-center justify-between">
+                                  <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                                     <p className="text-xs text-muted-foreground capitalize">
                                       {isGroup ? "Withdrawal Group" : transaction.type}
                                     </p>
                                     <p className={`text-lg font-bold ${
-                                      isGroup || transaction.type === "withdrawal" ? "text-green-500" : "text-blue-500"
+                                      transaction.type === "deposit" && transaction.status === "rejected"
+                                        ? "text-red-400"
+                                        :
+                                      isGroup || transaction.type === "withdrawal"
+                                        ? "text-green-500"
+                                        : transaction.type === "reward"
+                                          ? "text-yellow-500"
+                                          : "text-blue-500"
                                     }`}>
-                                      {isGroup || transaction.type === "withdrawal" ? "+" : ""}
-                                      ₱{transaction.amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                      {isGroup || transaction.type === "withdrawal" || transaction.type === "reward"
+                                        ? "+"
+                                        : transaction.type === "deposit" && transaction.status === "rejected"
+                                          ? ""
+                                          : ""}
+                                      {transaction.amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} KOLI
                                     </p>
                                   </div>
 
@@ -420,17 +523,29 @@ const TransactionHistory = () => {
                                     <>
                                       {transaction.type === "deposit" && transaction.details?.receiptURL && (
                                         <div className="mt-2 pt-2 border-t border-border">
-                                          <a
-                                            href={transaction.details.receiptURL}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
+                                          <button
+                                            type="button"
+                                            onClick={() => openReceiptModal(transaction.details.receiptURL, transaction.details.receiptPath)}
                                             className="text-xs text-primary hover:underline flex items-center gap-1"
                                           >
                                             <IconReceipt size={12} />
                                             View Receipt
-                                          </a>
+                                          </button>
                                         </div>
                                       )}
+
+                                      {transaction.type === "deposit" &&
+                                        transaction.status === "rejected" &&
+                                        transaction.details?.rejectionReason && (
+                                          <div className="mt-2 pt-2 border-t border-red-500/30">
+                                            <p className="text-xs text-red-400 flex items-start gap-1">
+                                              <IconAlertCircle size={12} className="mt-0.5 flex-shrink-0" />
+                                              <span>
+                                                Rejection reason: <span className="font-medium">{transaction.details.rejectionReason}</span>
+                                              </span>
+                                            </p>
+                                          </div>
+                                        )}
 
                                       {transaction.type === "withdrawal" &&
                                         transaction.status === "pending" && (
@@ -482,7 +597,7 @@ const TransactionHistory = () => {
                                           {withdrawal.date.toLocaleString()}
                                         </span>
                                         <span className="font-bold text-green-500">
-                                          +₱{withdrawal.amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                          +{withdrawal.amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} KOLI
                                         </span>
                                       </div>
                                       
@@ -519,6 +634,52 @@ const TransactionHistory = () => {
           </Tabs>
         </div>
       </main>
+
+      <Dialog open={isReceiptOpen} onOpenChange={setIsReceiptOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Receipt Preview</DialogTitle>
+            <DialogDescription>
+              Uploaded deposit receipt image.
+            </DialogDescription>
+          </DialogHeader>
+
+          {isReceiptLoading ? (
+            <div className="rounded-lg border border-border p-8 text-center">
+              <IconLoader className="h-5 w-5 mx-auto mb-2 animate-spin text-primary" />
+              <p className="text-sm text-muted-foreground">Loading receipt preview...</p>
+            </div>
+          ) : selectedReceiptUrl ? (
+            <div className="rounded-lg border border-border overflow-hidden bg-muted/20">
+              <img
+                src={selectedReceiptUrl}
+                alt="Deposit receipt"
+                className="w-full h-auto max-h-[70vh] object-contain"
+                onError={async () => {
+                  if (!selectedReceiptPath || selectedReceiptUrl.includes("token=")) {
+                    setReceiptError("Receipt image failed to load.");
+                    return;
+                  }
+
+                  try {
+                    const fallbackUrl = await getDownloadURL(storageRef(storage, selectedReceiptPath));
+                    setSelectedReceiptUrl(fallbackUrl);
+                    setReceiptError(null);
+                  } catch {
+                    setReceiptError("Receipt image failed to load.");
+                  }
+                }}
+              />
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No receipt image found.</p>
+          )}
+
+          {receiptError && (
+            <p className="text-xs text-orange-400">{receiptError}</p>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

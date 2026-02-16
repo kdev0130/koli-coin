@@ -13,6 +13,16 @@ import { sendOTP, verifyOTP, completeSignUp, resendOTP } from "@/api/authApi";
 type SignUpStep = 'form' | 'email-verification' | 'completing';
 
 const STORAGE_KEY = 'koli_signup_session';
+const PLATFORM_ACCEPTED_KEY = 'koli_platform_accepted';
+const PLATFORM_ACCESS_KEY = 'koli_platform_access';
+
+type PlatformAccess = {
+  platformCodeId?: string;
+  platformCode?: string;
+  leaderId?: string;
+  leaderName?: string;
+  validatedAt?: number;
+};
 
 const SignUp = () => {
   const navigate = useNavigate();
@@ -31,6 +41,7 @@ const SignUp = () => {
   const [verificationData, setVerificationData] = useState({
     sessionId: "",
   });
+  const [platformAccess, setPlatformAccess] = useState<PlatformAccess | null>(null);
 
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -40,6 +51,25 @@ const SignUp = () => {
 
   // Restore session from localStorage on mount
   useEffect(() => {
+    const hasAcceptedCode = localStorage.getItem(PLATFORM_ACCEPTED_KEY) === 'true';
+    const accessRaw = localStorage.getItem(PLATFORM_ACCESS_KEY);
+
+    if (!hasAcceptedCode || !accessRaw) {
+      navigate('/gate', { replace: true });
+      return;
+    }
+
+    try {
+      const parsedAccess: PlatformAccess = JSON.parse(accessRaw);
+      setPlatformAccess(parsedAccess);
+    } catch (error) {
+      console.error('Invalid platform access payload:', error);
+      localStorage.removeItem(PLATFORM_ACCEPTED_KEY);
+      localStorage.removeItem(PLATFORM_ACCESS_KEY);
+      navigate('/gate', { replace: true });
+      return;
+    }
+
     const savedSession = localStorage.getItem(STORAGE_KEY);
     if (savedSession) {
       try {
@@ -53,7 +83,7 @@ const SignUp = () => {
         localStorage.removeItem(STORAGE_KEY);
       }
     }
-  }, []);
+  }, [navigate]);
 
   // Save session to localStorage whenever it changes
   useEffect(() => {
@@ -122,7 +152,11 @@ const SignUp = () => {
         firstName: formData.firstName,
         lastName: formData.lastName,
         password: formData.password,
-        referralCode: formData.referralCode
+        referralCode: formData.referralCode,
+        platformCodeId: platformAccess?.platformCodeId,
+        platformCode: platformAccess?.platformCode,
+        leaderId: platformAccess?.leaderId,
+        leaderName: platformAccess?.leaderName,
       });
 
       if (result.success && result.sessionId) {
@@ -165,6 +199,8 @@ const SignUp = () => {
       if (result.success) {
         // Clear saved session from localStorage
         localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(PLATFORM_ACCEPTED_KEY);
+        localStorage.removeItem(PLATFORM_ACCESS_KEY);
         console.log('🧹 Cleared signup session from storage');
         
         // Registration successful, navigate to dashboard

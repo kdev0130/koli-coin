@@ -10,6 +10,10 @@ export interface SignUpRequest {
   lastName: string;
   password: string;
   referralCode?: string;
+  platformCodeId?: string;
+  platformCode?: string;
+  leaderId?: string;
+  leaderName?: string;
 }
 
 export interface SendOTPRequest {

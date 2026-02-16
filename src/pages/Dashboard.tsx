@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { StatusRibbon } from "@/components/dashboard/StatusRibbon";
 import { NewsFeed } from "@/components/dashboard/NewsFeed";
 import { ActivityCenter } from "@/components/dashboard/ActivityCenter";
+import { HeaderWithdrawable } from "@/components/common/HeaderWithdrawable";
 import { ManaRewardModal } from "@/components/dashboard/ManaRewardModal";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -59,6 +60,7 @@ const Dashboard = () => {
               <p className="text-xs text-muted-foreground">Information Hub</p>
             </div>
           </div>
+          <HeaderWithdrawable />
         </div>
       </motion.header>
 

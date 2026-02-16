@@ -11,7 +11,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "deploy:rules": "node scripts/deployRules.mjs"
+    "deploy:rules": "node scripts/deployRules.mjs",
+    "seed:leader-codes": "node scripts/addLeaderPlatformCodes.mjs",
+    "seed:leader-codes:force": "node scripts/addLeaderPlatformCodes.mjs --force"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

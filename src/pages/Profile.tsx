@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -42,15 +42,29 @@ import {
   canWithdraw,
   calculateTotalWithdrawable,
 } from "@/lib/donationContract";
-import { UnifiedWithdrawalModal } from "@/components/donation/UnifiedWithdrawalModal";
 import { ExternalWithdrawModal } from "@/components/donation/ExternalWithdrawModal";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const Profile = () => {
   const navigate = useNavigate();
   const { userData, logout, user } = useAuth();
-  const [isDarkMode, setIsDarkMode] = useState(true);
-  const [isUnifiedWithdrawalOpen, setIsUnifiedWithdrawalOpen] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    const savedTheme = localStorage.getItem("koli-theme");
+    if (savedTheme) {
+      return savedTheme === "dark";
+    }
+    return document.documentElement.classList.contains("dark");
+  });
   const [isExternalWithdrawOpen, setIsExternalWithdrawOpen] = useState(false);
+  const [isKycDetailsOpen, setIsKycDetailsOpen] = useState(false);
+  const [isKycImageOpen, setIsKycImageOpen] = useState(false);
   
   // Fetch donation contracts
   const { data: contracts, loading: contractsLoading } = useRealtimeContracts(user?.uid || null);
@@ -79,6 +93,12 @@ const Profile = () => {
   
   const totalWithdrawalsUsed = [...activeContracts, ...completedContracts].reduce((sum, c) => sum + c.withdrawalsCount, 0);
   const totalWithdrawalsAvailable = activeContracts.length * 12;
+  const assignedLeaderName = userData?.leaderName || userData?.leaderId || "Not assigned";
+  const profileDisplayName =
+    userData?.profile?.displayName ||
+    [userData?.firstName, userData?.lastName].filter(Boolean).join(" ") ||
+    userData?.name ||
+    "KOLI Member";
 
   const handleLogout = async () => {
     try {
@@ -97,14 +117,28 @@ const Profile = () => {
     });
   };
 
-  const handleThemeToggle = () => {
-    setIsDarkMode(!isDarkMode);
-    toast.info(isDarkMode ? "Light mode activated" : "Dark mode activated");
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", isDarkMode);
+    localStorage.setItem("koli-theme", isDarkMode ? "dark" : "light");
+  }, [isDarkMode]);
+
+  const handleThemeToggle = (checked: boolean) => {
+    setIsDarkMode(checked);
+    toast.info(checked ? "Dark mode activated" : "Light mode activated");
   };
 
-  const handleWithdrawalSuccess = () => {
-    // Refresh happens automatically via real-time listener
-    setIsUnifiedWithdrawalOpen(false);
+  const handleQuickWithdrawClick = () => {
+    if (totalWithdrawable <= 0) {
+      toast.error("No withdrawable amount available yet.");
+      return;
+    }
+
+    if (userData && !isUserFullyVerified(userData)) {
+      toast.error("Complete KYC verification to withdraw.");
+      return;
+    }
+
+    setIsExternalWithdrawOpen(true);
   };
 
   const getKYCBadge = () => {
@@ -145,6 +179,33 @@ const Profile = () => {
     }
   };
 
+  const formatDateValue = (value?: unknown) => {
+    if (!value) return "Not provided";
+
+    if (typeof value === "string") {
+      const parsedDate = new Date(value);
+      return Number.isNaN(parsedDate.getTime()) ? value : parsedDate.toLocaleString();
+    }
+
+    if (value instanceof Date) {
+      return value.toLocaleString();
+    }
+
+    if (typeof value === "object" && value !== null) {
+      const timestampLike = value as { toDate?: () => Date; seconds?: number };
+
+      if (typeof timestampLike.toDate === "function") {
+        return timestampLike.toDate().toLocaleString();
+      }
+
+      if (typeof timestampLike.seconds === "number") {
+        return new Date(timestampLike.seconds * 1000).toLocaleString();
+      }
+    }
+
+    return String(value);
+  };
+
   return (
     <div className="page-with-navbar bg-background">
       {/* Header */}
@@ -181,14 +242,12 @@ const Profile = () => {
             animate={{ opacity: 1, y: 0 }}
             className="text-center space-y-3"
           >
-            <div className="flex justify-center">
-              <div className="h-24 w-24 rounded-full bg-gradient-to-br from-koli-gold to-koli-gold-dark flex items-center justify-center text-koli-navy text-3xl font-bold">
-                {userData?.name?.charAt(0) || "K"}
-              </div>
-            </div>
             <div>
-              <h1 className="text-2xl font-bold text-foreground">{userData?.name || "KOLI Member"}</h1>
+              <h1 className="text-2xl font-bold text-foreground">{profileDisplayName}</h1>
               <p className="text-sm text-muted-foreground">{userData?.email || "member@koli.io"}</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Leader: <span className="font-medium text-foreground">{assignedLeaderName}</span>
+              </p>
             </div>
           </motion.div>
 
@@ -207,13 +266,17 @@ const Profile = () => {
             <Card className="border-border">
               <CardContent className="p-4 space-y-4">
                 {/* KYC Status */}
-                <div className="flex items-center justify-between p-4 rounded-lg bg-muted/50">
+                <button
+                  type="button"
+                  onClick={() => setIsKycDetailsOpen(true)}
+                  className="w-full flex items-center justify-between p-4 rounded-lg bg-muted/50 hover:bg-muted transition-colors text-left"
+                >
                   <div className="space-y-1">
                     <p className="text-sm font-semibold text-foreground">KYC Verification Status</p>
                     <p className="text-xs text-muted-foreground">Identity verification required for withdrawals</p>
                   </div>
                   {getKYCBadge()}
-                </div>
+                </button>
 
                 <Separator />
 
@@ -221,7 +284,7 @@ const Profile = () => {
                 <button
                   onClick={() => {
                     const status = userData?.kycStatus || "NOT_SUBMITTED";
-                    if (status === "NOT_SUBMITTED") {
+                    if (status === "NOT_SUBMITTED" || status === "REJECTED") {
                       navigate("/kyc-submission");
                     } else {
                       const statusInfo = getKycStatusDisplay(status);
@@ -238,12 +301,18 @@ const Profile = () => {
                     </div>
                     <div>
                       <p className="text-sm font-semibold text-foreground">
-                        {userData?.kycStatus === "NOT_SUBMITTED" ? "Submit KYC" : "View KYC Status"}
+                        {userData?.kycStatus === "NOT_SUBMITTED"
+                          ? "Submit KYC"
+                          : userData?.kycStatus === "REJECTED"
+                            ? "Re-apply KYC"
+                            : "View KYC Status"}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {userData?.kycStatus === "NOT_SUBMITTED" 
+                        {userData?.kycStatus === "NOT_SUBMITTED"
                           ? "Upload ID and complete verification"
-                          : "View your verification details"}
+                          : userData?.kycStatus === "REJECTED"
+                            ? "Your KYC was rejected. Submit updated documents"
+                            : "View your verification details"}
                       </p>
                     </div>
                   </div>
@@ -325,7 +394,7 @@ const Profile = () => {
                         {pendingContracts.length} Contract{pendingContracts.length > 1 ? 's' : ''} Pending Approval
                       </p>
                       <p className="text-xs text-muted-foreground mb-3">
-                        Total: ₱{pendingContracts.reduce((sum, c) => sum + c.donationAmount, 0).toLocaleString()} awaiting admin approval
+                        Total: {pendingContracts.reduce((sum, c) => sum + c.donationAmount, 0).toLocaleString()} KOLI awaiting admin approval
                       </p>
                       <Button
                         size="sm"
@@ -347,7 +416,7 @@ const Profile = () => {
                 <CardHeader className="pb-3">
                   <CardDescription className="text-xs">Total Principal</CardDescription>
                   <CardTitle className="text-2xl font-bold text-koli-gold">
-                    ₱{contractsLoading ? "..." : totalPrincipal.toLocaleString()}
+                    {contractsLoading ? "..." : totalPrincipal.toLocaleString()} KOLI
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -359,7 +428,7 @@ const Profile = () => {
                 <CardHeader className="pb-3">
                   <CardDescription className="text-xs">Total Withdrawn</CardDescription>
                   <CardTitle className="text-2xl font-bold text-blue-400">
-                    ₱{contractsLoading ? "..." : totalWithdrawn.toLocaleString()}
+                    {contractsLoading ? "..." : totalWithdrawn.toLocaleString()} KOLI
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -371,7 +440,7 @@ const Profile = () => {
                 <CardHeader className="pb-3">
                   <CardDescription className="text-xs">Available Now</CardDescription>
                   <CardTitle className="text-2xl font-bold text-green-400">
-                    ₱{contractsLoading ? "..." : totalWithdrawable.toLocaleString()}
+                    {contractsLoading ? "..." : totalWithdrawable.toLocaleString()} KOLI
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -382,13 +451,13 @@ const Profile = () => {
                         {contractWithdrawals > 0 && (
                           <div className="flex items-center justify-between text-muted-foreground">
                             <span>Contracts:</span>
-                            <span className="font-medium">₱{contractWithdrawals.toLocaleString()}</span>
+                            <span className="font-medium">{contractWithdrawals.toLocaleString()} KOLI</span>
                           </div>
                         )}
                         {manaBalance > 0 && (
                           <div className="flex items-center justify-between text-muted-foreground">
                             <span>MANA Rewards:</span>
-                            <span className="font-medium text-yellow-500">₱{manaBalance.toLocaleString()}</span>
+                            <span className="font-medium text-yellow-500">{manaBalance.toLocaleString()} KOLI</span>
                           </div>
                         )}
                       </div>
@@ -405,7 +474,7 @@ const Profile = () => {
                     </div>
                     {readyToWithdrawCount > 0 && (
                       <Button
-                        onClick={() => setIsExternalWithdrawOpen(true)}
+                        onClick={handleQuickWithdrawClick}
                         className="w-full bg-green-600 hover:bg-green-700"
                         size="sm"
                       >
@@ -469,8 +538,8 @@ const Profile = () => {
                       </p>
                       <p className="text-xs text-muted-foreground">
                         Withdraw from {readyToWithdrawCount} contract{readyToWithdrawCount > 1 ? 's' : ''} at once. 
-                        Choose your amount or withdraw all ₱{totalWithdrawable.toLocaleString()} in one transaction.
-                        {manaBalance > 0 && ` Includes ₱${manaBalance.toLocaleString()} from MANA rewards.`}
+                        Choose your amount or withdraw all {totalWithdrawable.toLocaleString()} KOLI in one transaction.
+                        {manaBalance > 0 && ` Includes ${manaBalance.toLocaleString()} KOLI from MANA rewards.`}
                       </p>
                       <div className="flex items-center gap-2 pt-1">
                         <Badge variant="outline" className="text-xs">
@@ -501,7 +570,7 @@ const Profile = () => {
 
               {readyToWithdrawCount > 0 ? (
                 <Button
-                  onClick={() => setIsExternalWithdrawOpen(true)}
+                  onClick={handleQuickWithdrawClick}
                   className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold relative"
                   size="lg"
                 >
@@ -673,19 +742,6 @@ const Profile = () => {
 
                 <Separator />
 
-                {/* Platform Code Info */}
-                <div className="p-4 rounded-lg bg-muted/50 space-y-2">
-                  <p className="text-xs text-muted-foreground">Community Access Code</p>
-                  <div className="flex items-center justify-between">
-                    <p className="text-lg font-bold font-mono text-foreground">{userData?.platformCode || "N/A"}</p>
-                    <Badge variant="outline" className="text-xs">
-                      Active
-                    </Badge>
-                  </div>
-                </div>
-
-                <Separator />
-
                 {/* Logout */}
                 <Button
                   onClick={handleLogout}
@@ -703,24 +759,128 @@ const Profile = () => {
       </main>
 
       {/* Unified Withdrawal Modal */}
-      <UnifiedWithdrawalModal
-        open={isUnifiedWithdrawalOpen}
-        onClose={() => setIsUnifiedWithdrawalOpen(false)}
-        contracts={contracts}
-        userData={userData}
-        userId={user?.uid || ""}
-        onWithdrawSuccess={handleWithdrawalSuccess}
-      />
+      <Dialog open={isKycDetailsOpen} onOpenChange={setIsKycDetailsOpen}>
+        <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>KYC Verification Details</DialogTitle>
+            <DialogDescription>
+              Review your submitted identity verification information.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="flex items-center justify-between p-3 rounded-lg bg-muted/40">
+              <span className="text-sm font-medium text-muted-foreground">Current Status</span>
+              {getKYCBadge()}
+            </div>
+
+            {userData?.kycStatus === "REJECTED" && (
+              <Alert variant="destructive" className="bg-red-500/10 border-red-500/40">
+                <IconAlertCircle className="h-4 w-4" />
+                <AlertTitle className="text-sm">KYC Rejection Reason</AlertTitle>
+                <AlertDescription className="text-sm font-medium break-words">
+                  {userData?.kycRejectionReason || "No rejection reason was provided."}
+                </AlertDescription>
+              </Alert>
+            )}
+
+            <div className="space-y-2 p-4 rounded-lg border border-border bg-background">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground font-semibold">Submission Timeline</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                <div>
+                  <p className="text-xs text-muted-foreground">Submitted At</p>
+                  <p className="font-medium">{formatDateValue(userData?.kycSubmittedAt)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Verified At</p>
+                  <p className="font-medium">{formatDateValue(userData?.kycVerifiedAt)}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2 p-4 rounded-lg border border-border bg-background">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground font-semibold">KYC Manual Data</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                <div>
+                  <p className="text-xs text-muted-foreground">Full Legal Name</p>
+                  <p className="font-medium">{userData?.kycManualData?.fullLegalName || "Not provided"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Date of Birth</p>
+                  <p className="font-medium">{userData?.kycManualData?.dateOfBirth || "Not provided"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">ID Type</p>
+                  <p className="font-medium">{userData?.kycManualData?.idType || "Not provided"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">ID Number</p>
+                  <p className="font-medium">{userData?.kycManualData?.idNumber || "Not provided"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">ID Expiration Date</p>
+                  <p className="font-medium">{userData?.kycManualData?.idExpirationDate || "Not provided"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Nationality</p>
+                  <p className="font-medium">{userData?.kycManualData?.nationality || "Not provided"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Phone Number</p>
+                  <p className="font-medium">{userData?.kycManualData?.phoneNumber || "Not provided"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Emergency Contact</p>
+                  <p className="font-medium">{userData?.kycManualData?.emergencyContact || "Not provided"}</p>
+                </div>
+                <div className="sm:col-span-2">
+                  <p className="text-xs text-muted-foreground">Address</p>
+                  <p className="font-medium break-words">{userData?.kycManualData?.address || "Not provided"}</p>
+                </div>
+              </div>
+            </div>
+
+            {userData?.kycIdImageURL && (
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => setIsKycImageOpen(true)}
+              >
+                View Uploaded KYC ID Image
+              </Button>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isKycImageOpen} onOpenChange={setIsKycImageOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Uploaded KYC ID Image</DialogTitle>
+            <DialogDescription>
+              Preview of the ID image you submitted for verification.
+            </DialogDescription>
+          </DialogHeader>
+
+          {userData?.kycIdImageURL ? (
+            <div className="rounded-lg border border-border overflow-hidden bg-muted/20">
+              <img
+                src={userData.kycIdImageURL}
+                alt="Uploaded KYC ID"
+                className="w-full h-auto max-h-[70vh] object-contain"
+              />
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No uploaded KYC image found.</p>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* External Withdraw Modal */}
       <ExternalWithdrawModal
         open={isExternalWithdrawOpen}
         onClose={() => setIsExternalWithdrawOpen(false)}
         withdrawableAmount={totalWithdrawable}
-        onLocalWithdraw={() => {
-          setIsExternalWithdrawOpen(false);
-          setIsUnifiedWithdrawalOpen(true);
-        }}
       />
 
       {/* Bottom Navigation */}

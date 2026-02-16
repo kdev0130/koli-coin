@@ -20,6 +20,18 @@ export const InstallApp = () => {
 
   useEffect(() => {
     detectPlatformAndState();
+
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setInstallState("android-ready");
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
   }, []);
 
   const detectPlatformAndState = () => {
@@ -60,12 +72,6 @@ export const InstallApp = () => {
     // Android Chrome flow
     if (isAndroid) {
       setInstallState("android-ready");
-      
-      // Listen for beforeinstallprompt event
-      window.addEventListener('beforeinstallprompt', (e) => {
-        e.preventDefault();
-        setDeferredPrompt(e);
-      });
       return;
     }
 
@@ -75,8 +81,8 @@ export const InstallApp = () => {
 
   const handleAndroidInstall = async () => {
     if (!deferredPrompt) {
-      // Fallback if prompt not available
-      setInstallState("ios-instructions");
+      // Keep native install-only flow for Android
+      setInstallState("android-ready");
       return;
     }
 
@@ -107,10 +113,10 @@ export const InstallApp = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-background via-background to-koli-navy px-4">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-sky-50 via-white to-emerald-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 px-4">
       {/* Background decoration */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full bg-primary/5 blur-[100px]" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[520px] h-[520px] rounded-full bg-sky-400/15 blur-[100px]" />
       </div>
 
       <AnimatePresence mode="wait">
@@ -164,7 +170,7 @@ export const InstallApp = () => {
               </p>
             </div>
 
-            <div className="bg-card border border-border rounded-2xl p-6 mb-6">
+            <div className="bg-white/90 dark:bg-card border border-sky-200/70 dark:border-border rounded-2xl p-6 mb-6 shadow-sm">
               <div className="space-y-4">
                 <div className="flex items-start gap-3">
                   <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
@@ -198,14 +204,21 @@ export const InstallApp = () => {
 
             <Button
               onClick={handleAndroidInstall}
-              className="w-full h-14 text-lg bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70"
+              disabled={!deferredPrompt}
+              className="w-full h-14 text-lg bg-gradient-to-r from-blue-600 to-emerald-500 hover:from-blue-700 hover:to-emerald-600 text-white"
             >
               Install App Now
             </Button>
 
-            <p className="text-center text-xs text-muted-foreground mt-4">
-              Installation takes less than 5 seconds
-            </p>
+            {!deferredPrompt ? (
+              <p className="text-center text-xs text-muted-foreground mt-4">
+                Preparing native Android install prompt...
+              </p>
+            ) : (
+              <p className="text-center text-xs text-muted-foreground mt-4">
+                Installation takes less than 5 seconds
+              </p>
+            )}
           </motion.div>
         )}
 
@@ -268,7 +281,7 @@ export const InstallApp = () => {
               </p>
             </div>
 
-            <div className="bg-card border border-border rounded-2xl p-6 space-y-6">
+            <div className="bg-white/90 dark:bg-card border border-sky-200/70 dark:border-border rounded-2xl p-6 space-y-6 shadow-sm">
               {/* Step 1 */}
               <div className="flex items-start gap-4">
                 <div className="w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold shrink-0">
@@ -321,11 +334,7 @@ export const InstallApp = () => {
               </div>
             </div>
 
-            <div className="mt-6 p-4 bg-primary/10 border border-primary/20 rounded-xl mb-20">
-              <p className="text-sm text-center text-foreground">
-                💡 <strong>Tip:</strong> The app works even without internet connection
-              </p>
-            </div>
+            <div className="mb-20" />
           </motion.div>
         )}
 
@@ -427,7 +436,7 @@ export const InstallApp = () => {
         className="absolute bottom-8 left-0 right-0 text-center z-10"
       >
         <p className="text-xs text-muted-foreground">
-          Kingdom of Love International © {new Date().getFullYear()}
+          Kingdom of Love International © 2024
         </p>
       </motion.footer>
     </div>

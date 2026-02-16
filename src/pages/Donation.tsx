@@ -28,8 +28,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { SkeletonList } from "@/components/ui/skeleton";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRealtimeContracts } from "@/hooks/useRealtimeContracts";
+import { HeaderWithdrawable } from "@/components/common/HeaderWithdrawable";
 import { AddDonationModal } from "@/components/donation/AddDonationModal";
-import { UnifiedWithdrawalModal } from "@/components/donation/UnifiedWithdrawalModal";
 import { ExternalWithdrawModal } from "@/components/donation/ExternalWithdrawModal";
 import {
   DonationContract,
@@ -47,7 +47,6 @@ const Donation = () => {
   const { logout, userData, user } = useAuth();
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [isUnifiedWithdrawalOpen, setIsUnifiedWithdrawalOpen] = useState(false);
   const [isExternalWithdrawOpen, setIsExternalWithdrawOpen] = useState(false);
 
   // Fetch user's donation contracts from Firestore in real-time
@@ -68,7 +67,7 @@ const Donation = () => {
   const activeContracts = contracts.filter(c => isContractActive(c));
   const completedContracts = contracts.filter(c => c.status === "completed");
   const expiredContracts = contracts.filter(c => c.status === "expired");
-  
+
   // Calculate totals
   const totalPrincipal = activeContracts.reduce((sum, c) => sum + c.donationAmount, 0);
   const totalWithdrawn = activeContracts.reduce((sum, c) => {
@@ -102,8 +101,18 @@ const Donation = () => {
     }
   };
 
-  const handleWithdrawalSuccess = () => {
-    // Refresh happens automatically via real-time listener
+  const handleQuickWithdrawClick = () => {
+    if (totalWithdrawable <= 0) {
+      toast.error("No withdrawable amount available yet.");
+      return;
+    }
+
+    if (userData && isUserFullyVerified(userData)) {
+      setIsExternalWithdrawOpen(true);
+      return;
+    }
+
+    toast.error("Complete KYC verification to withdraw.");
   };
 
   const calculateTimeRemaining = (unlockDate: Date | string) => {
@@ -131,14 +140,16 @@ const Donation = () => {
         animate={{ opacity: 1, y: 0 }}
         className="flex-shrink-0 backdrop-blur-lg bg-background/80 border-b border-border"
       >
-        <div className="max-w-7xl mx-auto flex items-center justify-between px-4 py-4">
+        <div className="max-w-7xl mx-auto flex items-start justify-between px-4 py-4">
           <div className="flex items-center gap-3">
             <img src={koliLogo} alt="KOLI" className="w-8 h-8" />
             <div>
               <span className="font-bold text-lg text-gradient-gold">$KOLI</span>
-              <p className="text-xs text-muted-foreground">Donation & Investment</p>
+              <p className="text-xs text-muted-foreground">Donation to the Kingdom</p>
             </div>
           </div>
+
+          <HeaderWithdrawable onClick={handleQuickWithdrawClick} className="self-center" />
         </div>
       </motion.header>
 
@@ -206,7 +217,7 @@ const Donation = () => {
                 <CardHeader className="pb-3">
                   <CardDescription className="text-xs">Total Principal</CardDescription>
                   <CardTitle className="text-3xl font-bold text-koli-gold">
-                    ₱{contractsLoading ? "..." : totalPrincipal.toLocaleString()}
+                    {contractsLoading ? "..." : totalPrincipal.toLocaleString()} KOLI
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -220,7 +231,7 @@ const Donation = () => {
                 <CardHeader className="pb-3">
                   <CardDescription className="text-xs">Total Withdrawn</CardDescription>
                   <CardTitle className="text-3xl font-bold text-blue-400">
-                    ₱{contractsLoading ? "..." : totalWithdrawn.toLocaleString()}
+                    {contractsLoading ? "..." : totalWithdrawn.toLocaleString()} KOLI
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -234,7 +245,7 @@ const Donation = () => {
                 <CardHeader className="pb-3">
                   <CardDescription className="text-xs">Available Now</CardDescription>
                   <CardTitle className="text-3xl font-bold text-green-400">
-                    ₱{contractsLoading ? "..." : totalWithdrawable.toLocaleString()}
+                    {contractsLoading ? "..." : totalWithdrawable.toLocaleString()} KOLI
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -245,13 +256,13 @@ const Donation = () => {
                         {contractWithdrawals > 0 && (
                           <div className="flex items-center justify-between text-muted-foreground">
                             <span>Contracts:</span>
-                            <span className="font-medium">₱{contractWithdrawals.toLocaleString()}</span>
+                            <span className="font-medium">{contractWithdrawals.toLocaleString()} KOLI</span>
                           </div>
                         )}
                         {manaBalance > 0 && (
                           <div className="flex items-center justify-between text-muted-foreground">
                             <span>MANA Rewards:</span>
-                            <span className="font-medium text-yellow-500">₱{manaBalance.toLocaleString()}</span>
+                            <span className="font-medium text-yellow-500">{manaBalance.toLocaleString()} KOLI</span>
                           </div>
                         )}
                       </div>
@@ -270,7 +281,7 @@ const Donation = () => {
                       <>
                         {userData && isUserFullyVerified(userData) ? (
                           <Button
-                            onClick={() => setIsExternalWithdrawOpen(true)}
+                            onClick={handleQuickWithdrawClick}
                             className="w-full bg-green-600 hover:bg-green-700"
                             size="sm"
                           >
@@ -396,7 +407,7 @@ const Donation = () => {
                               <div className="space-y-1">
                                 <div className="flex items-center gap-2">
                                   <h3 className="font-bold text-2xl text-foreground">
-                                    ₱{contract.donationAmount.toLocaleString()}
+                                    {contract.donationAmount.toLocaleString()} KOLI
                                   </h3>
                                   <Badge variant="outline" className="border-orange-500 text-orange-500">
                                     <IconHourglass size={12} className="mr-1" /> Pending
@@ -422,13 +433,13 @@ const Donation = () => {
                               <div className="p-3 rounded-lg bg-secondary border border-border">
                                 <p className="text-xs text-muted-foreground mb-1">Will Withdraw Per Period</p>
                                 <p className="text-lg font-bold text-green-400">
-                                  ₱{Math.floor(contract.donationAmount * 0.3).toLocaleString()}
+                                  {Math.floor(contract.donationAmount * 0.3).toLocaleString()} KOLI
                                 </p>
                               </div>
                               <div className="p-3 rounded-lg bg-secondary border border-border">
                                 <p className="text-xs text-muted-foreground mb-1">Max Total (12 times)</p>
                                 <p className="text-lg font-bold text-primary">
-                                  ₱{Math.floor(contract.donationAmount * 0.3 * 12).toLocaleString()}
+                                  {Math.floor(contract.donationAmount * 0.3 * 12).toLocaleString()} KOLI
                                 </p>
                               </div>
                             </div>
@@ -480,7 +491,7 @@ const Donation = () => {
                             <div className="space-y-1">
                               <div className="flex items-center gap-2">
                                 <h3 className="font-bold text-2xl text-foreground">
-                                  ₱{contract.donationAmount.toLocaleString()}
+                                  {contract.donationAmount.toLocaleString()} KOLI
                                 </h3>
                                 <Badge 
                                   variant={canWithdrawNow ? "default" : "outline"} 
@@ -514,17 +525,17 @@ const Donation = () => {
                             <div className="p-3 rounded-lg bg-secondary border border-border">
                               <p className="text-xs text-muted-foreground mb-1">Per Withdrawal</p>
                               <p className="text-lg font-bold text-green-400">
-                                ₱{details.withdrawalPerPeriod.toLocaleString()}
+                                {details.withdrawalPerPeriod.toLocaleString()} KOLI
                               </p>
                               <p className="text-xs text-muted-foreground mt-1">30% each time</p>
                             </div>
                             <div className="p-3 rounded-lg bg-secondary border border-border">
                               <p className="text-xs text-muted-foreground mb-1">Total Withdrawn</p>
                               <p className="text-lg font-bold text-blue-400">
-                                ₱{details.totalWithdrawn.toLocaleString()}
+                                {details.totalWithdrawn.toLocaleString()} KOLI
                               </p>
                               <p className="text-xs text-muted-foreground mt-1">
-                                Remaining: ₱{details.totalRemaining.toLocaleString()}
+                                Remaining: {details.totalRemaining.toLocaleString()} KOLI
                               </p>
                             </div>
                           </div>
@@ -554,11 +565,11 @@ const Donation = () => {
                               <div className="space-y-1">
                                 <p className="text-sm font-medium flex items-center gap-2 text-green-400">
                                   <IconCircleCheck size={16} />
-                                  Ready to withdraw ₱{availableAmount.toLocaleString()}!
+                                  Ready to withdraw {availableAmount.toLocaleString()} KOLI!
                                 </p>
                                 {availablePeriods > 1 && (
                                   <p className="text-xs text-muted-foreground">
-                                    {availablePeriods} periods stacked (₱{details.withdrawalPerPeriod.toLocaleString()} × {availablePeriods})
+                                    {availablePeriods} periods stacked ({details.withdrawalPerPeriod.toLocaleString()} KOLI × {availablePeriods})
                                   </p>
                                 )}
                               </div>
@@ -655,25 +666,11 @@ const Donation = () => {
         onClose={() => setIsAddModalOpen(false)}
       />
 
-      {/* Unified Withdrawal Modal */}
-      <UnifiedWithdrawalModal
-        open={isUnifiedWithdrawalOpen}
-        onClose={() => setIsUnifiedWithdrawalOpen(false)}
-        contracts={contracts}
-        userData={userData}
-        userId={user?.uid || ""}
-        onWithdrawSuccess={handleWithdrawalSuccess}
-      />
-
       {/* External Withdraw Modal */}
       <ExternalWithdrawModal
         open={isExternalWithdrawOpen}
         onClose={() => setIsExternalWithdrawOpen(false)}
         withdrawableAmount={totalWithdrawable}
-        onLocalWithdraw={() => {
-          setIsExternalWithdrawOpen(false);
-          setIsUnifiedWithdrawalOpen(true);
-        }}
       />
 
       {/* Bottom Navigation */}

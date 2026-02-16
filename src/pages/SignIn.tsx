@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { useNavigate, Link } from "react-router-dom";
 import { IconMail, IconLock } from "@tabler/icons-react";
@@ -11,6 +11,50 @@ import { auth, db } from "@/lib/firebase";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { collection, getDocs, query, where } from "firebase/firestore";
 
+const RATE_LIMIT_MAX_ATTEMPTS = 5;
+const RATE_LIMIT_COOLDOWN_MS = 5 * 60 * 1000;
+const RATE_LIMIT_MESSAGE = "Too many failed attempts, you have been rate limited.";
+
+type SignInRateState = {
+  failedAttempts: number;
+  cooldownUntil: number;
+};
+
+const getRateLimitStorageKey = (email: string) => `koli-signin-rate-limit:${email}`;
+
+const readRateLimitState = (email: string): SignInRateState => {
+  const key = getRateLimitStorageKey(email);
+  const raw = localStorage.getItem(key);
+
+  if (!raw) {
+    return { failedAttempts: 0, cooldownUntil: 0 };
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as SignInRateState;
+    return {
+      failedAttempts: parsed.failedAttempts || 0,
+      cooldownUntil: parsed.cooldownUntil || 0,
+    };
+  } catch {
+    return { failedAttempts: 0, cooldownUntil: 0 };
+  }
+};
+
+const writeRateLimitState = (email: string, state: SignInRateState) => {
+  localStorage.setItem(getRateLimitStorageKey(email), JSON.stringify(state));
+};
+
+const clearRateLimitState = (email: string) => {
+  localStorage.removeItem(getRateLimitStorageKey(email));
+};
+
+const formatCooldown = (seconds: number) => {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
+};
+
 const SignIn = () => {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
@@ -21,6 +65,32 @@ const SignIn = () => {
   const [error, setError] = useState("");
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [cooldownSeconds, setCooldownSeconds] = useState(0);
+
+  useEffect(() => {
+    const normalizedEmail = formData.email.trim().toLowerCase();
+
+    if (!normalizedEmail) {
+      setCooldownSeconds(0);
+      return;
+    }
+
+    const updateCooldown = () => {
+      const state = readRateLimitState(normalizedEmail);
+      const remainingMs = state.cooldownUntil - Date.now();
+      setCooldownSeconds(remainingMs > 0 ? Math.ceil(remainingMs / 1000) : 0);
+    };
+
+    updateCooldown();
+    const interval = setInterval(updateCooldown, 1000);
+    return () => clearInterval(interval);
+  }, [formData.email]);
+
+  useEffect(() => {
+    if (cooldownSeconds === 0 && error === RATE_LIMIT_MESSAGE) {
+      setError("");
+    }
+  }, [cooldownSeconds, error]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,10 +101,25 @@ const SignIn = () => {
       setError("Please fill in all fields");
       return;
     }
+
+    if (!navigator.onLine) {
+      setError("No internet connection. Please reconnect and try again.");
+      return;
+    }
+
+    const normalizedEmail = formData.email.trim().toLowerCase();
+    const rateState = readRateLimitState(normalizedEmail);
+    const remainingMs = rateState.cooldownUntil - Date.now();
+
+    if (remainingMs > 0) {
+      const remainingSeconds = Math.ceil(remainingMs / 1000);
+      setCooldownSeconds(remainingSeconds);
+      setError(RATE_LIMIT_MESSAGE);
+      return;
+    }
     
     setLoading(true);
     try {
-      const normalizedEmail = formData.email.trim().toLowerCase();
       const rawEmail = formData.email.trim();
       const membersRef = collection(db, "members");
 
@@ -54,22 +139,52 @@ const SignIn = () => {
 
       // Sign in with Firebase Auth - AuthGuard will handle navigation
       await signInWithEmailAndPassword(auth, normalizedEmail, formData.password);
+      clearRateLimitState(normalizedEmail);
+      setCooldownSeconds(0);
     } catch (error: any) {
       console.error("Sign in error:", error);
-          const errorCode = error?.code;
-          const isWrongPassword = errorCode === "auth/wrong-password" || errorCode === "auth/invalid-credential";
+      const errorCode = error?.code;
+      const isWrongPassword = errorCode === "auth/wrong-password" || errorCode === "auth/invalid-credential";
+      const isNetworkError =
+        errorCode === "auth/network-request-failed" ||
+        errorCode === "unavailable" ||
+        errorCode === "deadline-exceeded";
 
-          if (isWrongPassword) {
-            setShowForgotPassword(true);
-          }
+      if (isWrongPassword) {
+        setShowForgotPassword(true);
+      }
 
-          const errorMessage = isWrongPassword
-            ? "Incorrect password. Use Forgot password to reset it."
-            : errorCode === "auth/user-not-found"
-            ? "This email is not registered. Please sign up first."
-            : errorCode === "auth/too-many-requests"
-            ? "Too many failed attempts. Please try again later"
-            : "Failed to sign in. Please try again";
+      if (!isNetworkError) {
+        const currentState = readRateLimitState(normalizedEmail);
+        const nextFailedAttempts = (currentState.failedAttempts || 0) + 1;
+
+        if (nextFailedAttempts >= RATE_LIMIT_MAX_ATTEMPTS) {
+          const cooldownUntil = Date.now() + RATE_LIMIT_COOLDOWN_MS;
+          writeRateLimitState(normalizedEmail, {
+            failedAttempts: 0,
+            cooldownUntil,
+          });
+          const remainingSeconds = Math.ceil(RATE_LIMIT_COOLDOWN_MS / 1000);
+          setCooldownSeconds(remainingSeconds);
+          setError(RATE_LIMIT_MESSAGE);
+          return;
+        }
+
+        writeRateLimitState(normalizedEmail, {
+          failedAttempts: nextFailedAttempts,
+          cooldownUntil: 0,
+        });
+      }
+
+      const errorMessage = isWrongPassword
+        ? "Incorrect password. Use Forgot password to reset it."
+        : errorCode === "auth/user-not-found"
+        ? "This email is not registered. Please sign up first."
+        : errorCode === "auth/too-many-requests"
+        ? "Too many failed attempts. Please try again later"
+        : isNetworkError
+        ? "Network error while signing in. Check your internet, disable blocker/spoofer extensions, and try again."
+        : "Failed to sign in. Please try again";
       setError(errorMessage);
     } finally {
       setLoading(false);
@@ -185,25 +300,41 @@ const SignIn = () => {
             <KoliButton
               type="submit"
               loading={loading}
+              disabled={cooldownSeconds > 0}
               className="w-full"
             >
-              Sign In
+              {cooldownSeconds > 0
+                ? `Try again in ${formatCooldown(cooldownSeconds)}`
+                : "Sign In"}
             </KoliButton>
+
+            {cooldownSeconds > 0 && (
+              <p className="text-destructive text-sm text-left leading-relaxed">
+                {RATE_LIMIT_MESSAGE}
+              </p>
+            )}
           </motion.form>
 
-          {/* Sign Up Link */}
-          <motion.p
+          {/* Sign Up Button */}
+          <motion.div
             initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
+            animate={{ opacity: 1 }}  // ← ADD THIS LINE
             transition={{ delay: 0.4 }}
-            className="text-center text-sm text-muted-foreground mt-8"
+            className="text-center mt-8"
           >
-            Don't have an account?{" "}
-            <Link to="/signup" className="text-primary font-medium hover:underline">
-              Sign Up
-            </Link>
-          </motion.p>
+            <p className="text-sm text-muted-foreground mb-4">
+              Don't have an account?
+            </p>
+<KoliButton 
+  onClick={() => navigate("/signup")} 
+  className="w-full max-w-xs"
+>
+  Sign Up
+</KoliButton>
+          </motion.div>
         </div>
+
+        
 
         {/* Footer */}
         <motion.p

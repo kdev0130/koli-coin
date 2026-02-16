@@ -12,9 +12,10 @@ export interface DonationContract {
   withdrawalsCount: number; // 0-12 (deprecated, kept for backwards compatibility)
   totalWithdrawn?: number; // Actual total amount withdrawn (replaces period counting)
   contractEndDate: string | null; // ISO string (donationStartDate + 1 year) - Set when approved
-  status: "pending" | "active" | "approved" | "completed" | "expired";
+  status: "pending" | "active" | "approved" | "completed" | "expired" | "rejected";
   receiptURL?: string;
   receiptPath?: string;
+  rejectionReason?: string | null;
   paymentMethod?: string;
   createdAt: string;
   approvedAt?: string | null; // When admin approved
@@ -196,7 +197,7 @@ export function canWithdraw(contract: DonationContract): {
   if (availableAmount > 0) {
     return {
       canWithdraw: true,
-      reason: `₱${availableAmount.toFixed(2)} available to withdraw`,
+      reason: `${availableAmount.toFixed(2)} KOLI available to withdraw`,
       availablePeriods,
       availableAmount,
     };
@@ -522,7 +523,7 @@ export function distributeWithdrawalAmount(
 
   if (requestedAmount > totalAvailable) {
     throw new Error(
-      `Requested amount ₱${requestedAmount.toFixed(2)} exceeds available ₱${totalAvailable.toFixed(2)}`
+      `Requested amount ${requestedAmount.toFixed(2)} KOLI exceeds available ${totalAvailable.toFixed(2)} KOLI`
     );
   }
 
@@ -593,7 +594,7 @@ export async function processPooledWithdrawal(
 
   if (requestedAmount > totalAvailable) {
     throw new Error(
-      `Requested amount ₱${requestedAmount.toFixed(2)} exceeds selected available ₱${totalAvailable.toFixed(2)}`
+      `Requested amount ${requestedAmount.toFixed(2)} KOLI exceeds selected available ${totalAvailable.toFixed(2)} KOLI`
     );
   }
 
@@ -656,7 +657,7 @@ export async function processPooledWithdrawal(
       processedAt: null,
       processedBy: null,
       transactionProof: null,
-      notes: `MANA Rewards withdrawal: ₱${manaAmount.toFixed(2)}`,
+      notes: `MANA Rewards withdrawal: ${manaAmount.toFixed(2)} KOLI`,
     };
 
     const manaPayoutRef = await addDoc(collection(db, "payout_queue"), manaPayoutData);
@@ -720,7 +721,7 @@ export async function processPooledWithdrawal(
         processedAt: null,
         processedBy: null,
         transactionProof: null,
-        notes: `Withdrawal: ₱${amount.toFixed(2)} (₱${remainingBalance.toFixed(2)} remaining) from contract ${contractId}`,
+        notes: `Withdrawal: ${amount.toFixed(2)} KOLI (${remainingBalance.toFixed(2)} KOLI remaining) from contract ${contractId}`,
       };
 
       const payoutRef = await addDoc(collection(db, "payout_queue"), payoutData);
