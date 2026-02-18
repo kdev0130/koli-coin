@@ -27,6 +27,7 @@ export const KYCSubmission = () => {
   const [idImage, setIdImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
 
   // All form fields (manually entered)
   const [formData, setFormData] = useState({
@@ -41,6 +42,44 @@ export const KYCSubmission = () => {
     emergencyContact: "",
     emergencyContactPhone: "",
   });
+
+  const compressImageFile = async (file: File): Promise<File> => {
+    if (!file.type.startsWith("image/") || file.type === "image/gif") {
+      return file;
+    }
+
+    const imageBitmap = await createImageBitmap(file);
+    const maxDimension = 1600;
+    const scale = Math.min(1, maxDimension / Math.max(imageBitmap.width, imageBitmap.height));
+    const width = Math.max(1, Math.round(imageBitmap.width * scale));
+    const height = Math.max(1, Math.round(imageBitmap.height * scale));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+
+    if (!context) {
+      return file;
+    }
+
+    context.drawImage(imageBitmap, 0, 0, width, height);
+
+    const blob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, "image/jpeg", 0.82);
+    });
+
+    if (!blob) {
+      return file;
+    }
+
+    if (blob.size >= file.size) {
+      return file;
+    }
+
+    const fallbackName = file.name.replace(/\.[^.]+$/, "") || "kyc-image";
+    return new File([blob], `${fallbackName}.jpg`, { type: "image/jpeg" });
+  };
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -58,14 +97,27 @@ export const KYCSubmission = () => {
       return;
     }
 
-    setIdImage(file);
+    setUploadProgress(0);
 
-    // Create preview
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setImagePreview(reader.result as string);
-    };
-    reader.readAsDataURL(file);
+    (async () => {
+      try {
+        const compressedFile = await compressImageFile(file);
+        setIdImage(compressedFile);
+
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setImagePreview(reader.result as string);
+        };
+        reader.readAsDataURL(compressedFile);
+      } catch {
+        setIdImage(file);
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setImagePreview(reader.result as string);
+        };
+        reader.readAsDataURL(file);
+      }
+    })();
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -117,6 +169,7 @@ export const KYCSubmission = () => {
     }
 
     setLoading(true);
+    setUploadProgress(0);
     try {
       const manualData: KYCManualData = {
         fullLegalName: formData.fullLegalName,
@@ -131,7 +184,9 @@ export const KYCSubmission = () => {
         emergencyContactPhone: formData.emergencyContactPhone,
       };
       
-      await submitKyc(user.uid, idImage, manualData);
+      await submitKyc(user.uid, idImage, manualData, (progress) => {
+        setUploadProgress(progress);
+      });
       toast.success("KYC submitted successfully!", {
         description: "Your submission is being reviewed by our team.",
       });
@@ -139,7 +194,18 @@ export const KYCSubmission = () => {
       navigate("/profile");
     } catch (error: any) {
       console.error("KYC submission error:", error);
-      toast.error(error.message || "Failed to submit KYC");
+      const rawMessage = String(error?.message || "");
+      if (rawMessage.includes("storage/unauthorized")) {
+        toast.error("Upload blocked by storage permissions. Please sign in again and retry.");
+      } else if (rawMessage.includes("storage/canceled")) {
+        toast.error("Upload canceled. Please retry.");
+      } else if (rawMessage.includes("storage/quota-exceeded")) {
+        toast.error("Storage quota exceeded. Please contact support.");
+      } else if (rawMessage.includes("Upload is taking longer than expected")) {
+        toast.error("Upload timed out. We retried once, but it still failed. Please retry with a clearer/lower-size image.");
+      } else {
+        toast.error(error.message || "Failed to submit KYC");
+      }
     } finally {
       setLoading(false);
     }
@@ -282,6 +348,7 @@ export const KYCSubmission = () => {
                     onClick={() => {
                       setIdImage(null);
                       setImagePreview(null);
+                      setUploadProgress(0);
                     }}
                   >
                     Change Photo
@@ -489,9 +556,19 @@ export const KYCSubmission = () => {
           </Card>
 
           {/* Submit Button */}
-          <Button type="submit" className="w-full" size="lg" disabled={loading || !idImage}>
-            {loading ? "Submitting..." : "Submit for Verification"}
-          </Button>
+          <div className="space-y-2">
+            <Button type="submit" className="w-full" size="lg" disabled={loading || !idImage}>
+              {loading ? `Uploading and submitting... ${uploadProgress}%` : "Submit for Verification"}
+            </Button>
+            {loading && (
+              <div className="w-full h-2 rounded-full bg-muted overflow-hidden">
+                <div
+                  className="h-full bg-primary transition-all duration-300"
+                  style={{ width: `${Math.max(5, uploadProgress)}%` }}
+                />
+              </div>
+            )}
+          </div>
         </motion.form>
       </main>
     </div>

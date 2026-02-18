@@ -1,6 +1,6 @@
 import { doc, updateDoc, getDoc } from "firebase/firestore";
-import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { db } from "./firebase";
+import { getStorage, ref, uploadBytesResumable, uploadBytes, getDownloadURL } from "firebase/storage";
+import { db, storage } from "./firebase";
 
 export interface KYCAutoCapturedData {
   fullLegalName?: string;
@@ -27,6 +27,26 @@ export interface KYCManualData {
   emergencyContactPhone?: string;
 }
 
+function sanitizeFileName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+
+    promise
+      .then((result) => {
+        clearTimeout(timer);
+        resolve(result);
+      })
+      .catch((error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
+}
+
 /**
  * Parse ID card data (no OCR - manual entry only)
  */
@@ -49,19 +69,92 @@ export async function parseIdCardData(imageFile: File): Promise<KYCAutoCapturedD
 export async function submitKyc(
   userId: string,
   idImage: File,
-  manualData: KYCManualData
+  manualData: KYCManualData,
+  onProgress?: (progress: number) => void
 ): Promise<void> {
-  // Upload ID image to Firebase Storage
-  const storage = getStorage();
+  // Upload ID image to Firebase Storage (resumable with timeout for mobile reliability)
+  const activeStorage = storage || getStorage();
   const timestamp = Date.now();
-  const fileName = `kyc/${userId}/${timestamp}_${idImage.name}`;
-  const storageRef = ref(storage, fileName);
-  
-  // Upload the file
-  await uploadBytes(storageRef, idImage);
-  
+  const safeName = sanitizeFileName(idImage.name || "kyc-image.jpg");
+  const fileName = `kyc/${userId}/${timestamp}_${safeName}`;
+  const storageRef = ref(activeStorage, fileName);
+
+  const uploadWithResumable = async (): Promise<void> => {
+    const uploadTask = uploadBytesResumable(storageRef, idImage, {
+      contentType: idImage.type || "image/jpeg",
+    });
+    let lastProgressAt = Date.now();
+    let stalled = false;
+
+    const stallWatcher = setInterval(() => {
+      if (Date.now() - lastProgressAt > 20000) {
+        stalled = true;
+        try {
+          uploadTask.cancel();
+        } catch {
+          // no-op
+        }
+      }
+    }, 2000);
+
+    try {
+      await withTimeout(
+        new Promise<void>((resolve, reject) => {
+          uploadTask.on(
+            "state_changed",
+            (snapshot) => {
+              lastProgressAt = Date.now();
+              const total = snapshot.totalBytes || 0;
+              const transferred = snapshot.bytesTransferred || 0;
+              const computed = total > 0 ? Math.round((transferred / total) * 100) : 0;
+              onProgress?.(Math.min(99, Math.max(1, computed)));
+            },
+            (error: any) => {
+              if (stalled || error?.code === "storage/canceled") {
+                reject(new Error("upload_stalled"));
+                return;
+              }
+              reject(error);
+            },
+            () => resolve()
+          );
+        }),
+        120000,
+        "Upload timed out."
+      );
+    } finally {
+      clearInterval(stallWatcher);
+    }
+  };
+
+  const uploadWithDirectFallback = async () => {
+    onProgress?.(15);
+    await withTimeout(
+      uploadBytes(storageRef, idImage, {
+        contentType: idImage.type || "image/jpeg",
+      }),
+      120000,
+      "Upload timed out."
+    );
+    onProgress?.(95);
+  };
+
+  try {
+    onProgress?.(1);
+    await uploadWithResumable();
+  } catch {
+    // Fallback path for Android devices where resumable upload can hang.
+    await uploadWithDirectFallback();
+  }
+
+  onProgress?.(100);
+
   // Get the download URL
-  const imageURL = await getDownloadURL(storageRef);
+  const imageURL = await withTimeout(
+    getDownloadURL(storageRef),
+    20000,
+    "Failed to finalize image upload. Please try again."
+  );
   
   // Parse ID data (OCR)
   const autoCapturedData = await parseIdCardData(idImage);
@@ -119,7 +212,7 @@ export async function submitKyc(
     }
   }
   
-  await updateDoc(userRef, updateData);
+  await withTimeout(updateDoc(userRef, updateData), 30000, "KYC submission timed out while saving. Please try again.");
 }
 
 /**

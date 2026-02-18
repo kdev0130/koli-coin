@@ -7,9 +7,9 @@ export const StatusRibbon = () => {
   // Mock data - replace with actual data from your API
   const coinProgress = {
     current: 2500000,
-    target: 10000000,
-    percentage: 25,
+    target: 1000000000,
   };
+  const percentage = Math.min(100, Number(((coinProgress.current / coinProgress.target) * 100).toFixed(2)));
 
   return (
     <motion.div
@@ -25,11 +25,11 @@ export const StatusRibbon = () => {
           </div>
           <div className="flex items-center gap-1 text-sm text-koli-gold">
             <IconTrendingUp className="h-4 w-4" />
-            <span className="font-semibold">{coinProgress.percentage}%</span>
+            <span className="font-semibold">{percentage}%</span>
           </div>
         </div>
 
-        <Progress value={coinProgress.percentage} className="h-2 mb-2" />
+        <Progress value={percentage} className="h-2 mb-2" />
 
         <div className="flex justify-between text-xs text-muted-foreground">
           <span>{coinProgress.current.toLocaleString()} KOLI</span>

@@ -167,6 +167,12 @@ service cloud.firestore {
     match /odhexNotifications/{notificationId} {
       allow read, write: if true;
     }
+
+    // System Settings - allow app clients to read global platform settings
+    match /systemSettings/{docId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
     
     // Allow admins full access to remaining collections
     // This catch-all must come AFTER specific rules

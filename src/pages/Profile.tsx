@@ -10,9 +10,7 @@ import {
   IconCheck,
   IconAlertCircle,
   IconWallet,
-  IconArrowDown,
   IconArrowUp,
-  IconLink,
   IconUsers,
   IconCopy,
   IconHistory,
@@ -23,7 +21,6 @@ import {
   IconFileText,
   IconChevronRight,
   IconClock,
-  IconHourglass,
 } from "@tabler/icons-react";
 import { Pickaxe } from "lucide-react";
 import koliLogo from "@/assets/koli-logo.png";
@@ -609,24 +606,6 @@ const Profile = () => {
                       <p className="text-xs text-muted-foreground">
                         {activeContracts.length} active · {pendingContracts.length} pending
                       </p>
-                    </div>
-                  </div>
-                  <IconChevronRight className="h-5 w-5 text-muted-foreground" />
-                </button>
-                
-                <Separator />
-                
-                <button
-                  onClick={() => navigate("/linked-accounts")}
-                  className="w-full flex items-center justify-between p-4 rounded-lg hover:bg-muted/50 transition-colors text-left"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                      <IconLink className="h-5 w-5 text-blue-500" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-foreground">Linked Accounts</p>
-                      <p className="text-xs text-muted-foreground">Manage E-Wallets & Bank Accounts</p>
                     </div>
                   </div>
                   <IconChevronRight className="h-5 w-5 text-muted-foreground" />

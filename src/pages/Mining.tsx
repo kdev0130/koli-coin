@@ -33,9 +33,9 @@ const Mining = () => {
   // Mock data - replace with actual data
   const coinCreationProgress = {
     current: 2500000,
-    target: 10000000,
-    percentage: 25,
+    target: 1000000000,
   };
+  const coinCreationPercentage = Math.min(100, Number(((coinCreationProgress.current / coinCreationProgress.target) * 100).toFixed(2)));
 
   const handleLogout = async () => {
     try {
@@ -156,7 +156,7 @@ const Mining = () => {
                   KOLI Coin Creation Progress
                 </CardTitle>
                 <CardDescription>
-                  Track the progress towards our 10M coin creation milestone
+                  Track the progress towards our 1B coin creation milestone
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -169,13 +169,13 @@ const Mining = () => {
                   </div>
                   
                   <Progress 
-                    value={coinCreationProgress.percentage} 
+                    value={coinCreationPercentage} 
                     className="h-4"
                   />
                   
                   <div className="flex justify-between text-sm">
                     <span className="font-semibold text-koli-gold">
-                      {coinCreationProgress.percentage}% Complete
+                      {coinCreationPercentage}% Complete
                     </span>
                     <span className="text-muted-foreground">
                       {coinCreationProgress.target.toLocaleString()} KOLI Goal

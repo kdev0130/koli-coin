@@ -107,7 +107,7 @@ export const ExternalWithdrawModal: React.FC<ExternalWithdrawModalProps> = ({
     
     if (currentUrl.hostname === 'koli-2bad9.web.app') {
       // Production: Use ODHex production URL
-      odhexBaseUrl = 'https://odhex-exchange.web.app';
+      odhexBaseUrl = 'https://odhex.com';
     } else if (currentUrl.hostname === 'localhost') {
       // Development: Use localhost with port 8082
       odhexBaseUrl = `${currentUrl.protocol}//localhost:8082`;

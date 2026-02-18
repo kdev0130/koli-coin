@@ -5,7 +5,7 @@ export function openOdhexInNewTab(email: string, amount: number): boolean {
   let odhexBaseUrl: string;
 
   if (currentUrl.hostname === "koli-2bad9.web.app") {
-    odhexBaseUrl = "https://odhex-exchange.web.app";
+    odhexBaseUrl = "https://odhex.com";
   } else if (currentUrl.hostname === "localhost") {
     odhexBaseUrl = `${currentUrl.protocol}//localhost:8082`;
   } else {

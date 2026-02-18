@@ -7,8 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { db, storage } from "@/lib/firebase";
-import { collection, addDoc } from "firebase/firestore";
+import { storage } from "@/lib/firebase";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { useAuth } from "@/contexts/AuthContext";
 import { donate } from "@/lib/donationContract";
@@ -29,6 +28,21 @@ export const AddDonationModal: React.FC<AddDonationModalProps> = ({ open, onClos
   const [receipt, setReceipt] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  const withTimeout = <T,>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> => {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      promise
+        .then((result) => {
+          clearTimeout(timer);
+          resolve(result);
+        })
+        .catch((error) => {
+          clearTimeout(timer);
+          reject(error);
+        });
+    });
+  };
 
   // Calculate maturity date (30 days from now)
   const calculate30DaysFromNow = () => {
@@ -139,48 +153,34 @@ export const AddDonationModal: React.FC<AddDonationModalProps> = ({ open, onClos
       return;
     }
 
+    if (!user?.uid) {
+      toast.error("Please sign in again and retry.");
+      return;
+    }
+
     setLoading(true);
     try {
-      // Use Firebase REST API directly to bypass SDK issues
+      // Upload via Firebase SDK (more reliable on Android than raw fetch + auth headers)
       const timestamp = Date.now();
-      const fileName = `receipts/${user?.uid}/${timestamp}_${receipt.name}`;
-      
-      console.log("Uploading via REST API:", fileName);
-      
-      // Get auth token
-      const token = await user?.getIdToken();
-      
-      // Upload directly via REST API
-      const uploadUrl = `https://firebasestorage.googleapis.com/v0/b/koli-2bad9.firebasestorage.app/o?name=${encodeURIComponent(fileName)}`;
-      
-      const uploadResponse = await fetch(uploadUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': receipt.type || 'application/octet-stream',
-        },
-        body: receipt
-      });
-      
-      if (!uploadResponse.ok) {
-        const errorText = await uploadResponse.text();
-        console.error("Upload failed:", uploadResponse.status, errorText);
-        throw new Error(`Upload failed: ${uploadResponse.status} - ${errorText}`);
-      }
-      
-      const uploadData = await uploadResponse.json();
-      console.log("Upload successful:", uploadData);
-      
-      // Construct download URL
-      const receiptURL = `https://firebasestorage.googleapis.com/v0/b/koli-2bad9.firebasestorage.app/o/${encodeURIComponent(fileName)}?alt=media`;
-      
-      console.log("Receipt uploaded successfully:", receiptURL);
+      const safeName = receipt.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const fileName = `receipts/${user.uid}/${timestamp}_${safeName}`;
+      const storageRef = ref(storage, fileName);
+
+      await withTimeout(
+        uploadBytes(storageRef, receipt, {
+          contentType: receipt.type || "application/octet-stream",
+        }),
+        120000,
+        "Upload timed out. Please try again on a stable connection."
+      );
+
+      const receiptURL = await getDownloadURL(storageRef);
 
       const paymentDetails = paymentService ? `${paymentMethod}:${paymentService}` : paymentMethod;
 
       // Create donation contract using the new contract system
       await donate(
-        user?.uid || "",
+        user.uid,
         parseFloat(amount),
         paymentDetails,
         receiptURL,
@@ -218,6 +218,10 @@ export const AddDonationModal: React.FC<AddDonationModalProps> = ({ open, onClos
         errorMessage = "Upload was canceled. Please try again.";
       } else if (error.code === "storage/quota-exceeded") {
         errorMessage = "Storage quota exceeded. Please contact support.";
+      } else if (error.code === "storage/retry-limit-exceeded" || error.code === "storage/network-request-failed") {
+        errorMessage = "Network issue while uploading receipt. Please retry with a stronger connection.";
+      } else if (typeof error.message === "string" && error.message.toLowerCase().includes("timed out")) {
+        errorMessage = error.message;
       } else if (error.message) {
         errorMessage = error.message;
       }
