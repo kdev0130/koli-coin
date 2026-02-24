@@ -9,6 +9,7 @@ import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { AuthGuard } from "./components/AuthGuard";
 import { ScrollToTop } from "./components/ScrollToTop";
 import { MaintenanceBanner } from "./components/common/MaintenanceBanner";
+import { NotificationSync } from "./components/notifications/NotificationSync";
 import { db } from "./lib/firebase";
 
 import SplashScreen from "./pages/SplashScreen";
@@ -22,6 +23,7 @@ import Mining from "./pages/Mining";
 import Profile from "./pages/Profile";
 import KYCSubmission from "./pages/KYCSubmission";
 import TransactionHistory from "./pages/TransactionHistory";
+import Notifications from "./pages/Notifications";
 import InstallApp from "./pages/InstallApp";
 import MaintenanceMode from "./pages/MaintenanceMode";
 import NotFound from "./pages/NotFound";
@@ -207,6 +209,7 @@ function AppRoutes() {
   // Installed PWA (mobile) or desktop/web mode - show full app with auth
   return (
     <AuthGuard>
+      <NotificationSync />
       <ScrollToTop />
       <MaintenanceBanner />
       <Routes>
@@ -239,6 +242,7 @@ function AppRoutes() {
         
         {/* Transaction History */}
         <Route path="/transaction-history" element={<TransactionHistory />} />
+        <Route path="/notifications" element={<Notifications />} />
         
         {/* Catch-all */}
         <Route path="*" element={<NotFound />} />

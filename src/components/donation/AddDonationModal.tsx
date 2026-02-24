@@ -17,17 +17,50 @@ interface AddDonationModalProps {
   onClose: () => void;
 }
 
+type DonationAccount = {
+  accountNumber: string;
+  accountName: string;
+};
+
+const donationAccounts: Record<string, DonationAccount[]> = {
+  BPI: [
+    {
+      accountNumber: "007303008572",
+      accountName: "JBT PRINTING SHOP",
+    },
+  ],
+  BDO: [
+    {
+      accountNumber: "040300123868",
+      accountName: "JENNY C TANGARO",
+    },
+    {
+      accountNumber: "040300126778",
+      accountName: "JBT PRINTING SHOP",
+    },
+  ],
+  GoTyme: [
+    {
+      accountNumber: "015570262869",
+      accountName: "JENNY TANGARO",
+    },
+  ],
+};
+
 export const AddDonationModal: React.FC<AddDonationModalProps> = ({ open, onClose }) => {
   const { user } = useAuth();
-  const eWalletOptions = ["GCash", "Maya", "GrabPay", "ShopeePay"];
-  const bankOptions = ["BPI", "BDO", "UnionBank", "Metrobank", "LandBank"];
+  const eWalletOptions = ["GoTyme"];
+  const bankOptions = ["BPI", "BDO", "GoTyme"];
   const [step, setStep] = useState(1);
   const [amount, setAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("");
   const [paymentService, setPaymentService] = useState("");
   const [receipt, setReceipt] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copiedAccount, setCopiedAccount] = useState("");
+
+  const selectedAccounts = donationAccounts[paymentService] || [];
+  const availableServices = paymentMethod === "gcash" ? eWalletOptions : bankOptions;
 
   const withTimeout = <T,>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> => {
     return new Promise((resolve, reject) => {
@@ -70,16 +103,15 @@ export const AddDonationModal: React.FC<AddDonationModalProps> = ({ open, onClos
     return (numAmount * 0.3 * 12).toLocaleString();
   };
 
-  const handleCopyAccountNumber = async () => {
-    const accountNumber = "09123456789";
+  const handleCopyAccountNumber = async (accountNumber: string) => {
     
     try {
       // Method 1: Modern Clipboard API (works on HTTPS and localhost)
       if (navigator.clipboard && window.isSecureContext) {
         await navigator.clipboard.writeText(accountNumber);
-        setCopied(true);
-        toast.success("Copied: 0912 345 6789");
-        setTimeout(() => setCopied(false), 2000);
+        setCopiedAccount(accountNumber);
+        toast.success(`Copied: ${accountNumber}`);
+        setTimeout(() => setCopiedAccount(""), 2000);
         return;
       }
     } catch (err) {
@@ -111,15 +143,15 @@ export const AddDonationModal: React.FC<AddDonationModalProps> = ({ open, onClos
       document.body.removeChild(textarea);
       
       if (successful) {
-        setCopied(true);
-        toast.success("Copied: 0912 345 6789");
-        setTimeout(() => setCopied(false), 2000);
+        setCopiedAccount(accountNumber);
+        toast.success(`Copied: ${accountNumber}`);
+        setTimeout(() => setCopiedAccount(""), 2000);
       } else {
         throw new Error('execCommand failed');
       }
     } catch (err) {
       console.error('All copy methods failed:', err);
-      toast.error("Copy failed. Number: 0912 345 6789", {
+      toast.error(`Copy failed. Number: ${accountNumber}`, {
         duration: 5000,
       });
     }
@@ -136,6 +168,10 @@ export const AddDonationModal: React.FC<AddDonationModalProps> = ({ open, onClos
     }
     if (!paymentService) {
       toast.error("Please select a payment option");
+      return;
+    }
+    if (!availableServices.includes(paymentService) || selectedAccounts.length === 0) {
+      toast.error("Selected payment option is not supported yet");
       return;
     }
     setStep(2);
@@ -314,7 +350,7 @@ export const AddDonationModal: React.FC<AddDonationModalProps> = ({ open, onClos
                       />
                     </SelectTrigger>
                     <SelectContent>
-                      {(paymentMethod === "gcash" ? eWalletOptions : bankOptions).map((option) => (
+                      {availableServices.map((option) => (
                         <SelectItem key={option} value={option}>
                           {option}
                         </SelectItem>
@@ -407,34 +443,46 @@ export const AddDonationModal: React.FC<AddDonationModalProps> = ({ open, onClos
               {/* Payment Instructions */}
               <div className="p-4 bg-primary/10 border border-primary/20 rounded-lg space-y-3">
                 <p className="text-sm font-bold text-foreground">
-                  Send {parseFloat(amount).toLocaleString()} KOLI to:
+                  Send {parseFloat(amount).toLocaleString()} KOLI to {paymentService}:
                 </p>
-                <div className="flex justify-between items-center gap-3">
-                  <code className="text-lg font-mono font-bold text-primary flex-1">
-                    0912 345 6789
-                  </code>
-                  <Button 
-                    size="sm" 
-                    variant="outline"
-                    onClick={handleCopyAccountNumber}
-                    className="gap-2 shrink-0"
-                  >
-                    {copied ? (
-                      <>
-                        <IconCheck size={16} />
-                        Copied!
-                      </>
-                    ) : (
-                      <>
-                        <IconCopy size={16} />
-                        Copy
-                      </>
-                    )}
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Account Name: <span className="font-semibold text-foreground">KOLI COMMUNITY</span>
-                </p>
+                {selectedAccounts.length > 0 ? (
+                  <div className="space-y-3">
+                    {selectedAccounts.map((account) => (
+                      <div key={`${paymentService}-${account.accountNumber}`} className="space-y-2 rounded-md border border-primary/20 bg-background/50 p-3">
+                        <div className="flex justify-between items-center gap-3">
+                          <code className="text-base font-mono font-bold text-primary flex-1 break-all">
+                            {account.accountNumber}
+                          </code>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleCopyAccountNumber(account.accountNumber)}
+                            className="gap-2 shrink-0"
+                          >
+                            {copiedAccount === account.accountNumber ? (
+                              <>
+                                <IconCheck size={16} />
+                                Copied!
+                              </>
+                            ) : (
+                              <>
+                                <IconCopy size={16} />
+                                Copy
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Account Name: <span className="font-semibold text-foreground">{account.accountName}</span>
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    No configured receiving account for this payment option yet.
+                  </p>
+                )}
               </div>
 
               {/* Receipt Upload */}

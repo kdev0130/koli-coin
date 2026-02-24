@@ -5,8 +5,11 @@ import {
   IconLock,
   IconLockOpen,
   IconCalendar,
-  IconAlertCircle,
-  IconInfoCircle,
+  IconBuilding,
+  IconSettings,
+  IconRocket,
+  IconPick,
+  IconChartArcs,
 } from "@tabler/icons-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -14,79 +17,106 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 
 export const ActivityCenter = () => {
-  // Mock notifications - replace with actual data from your API
-  const notifications = [
+  const logs = [
     {
-      id: 1,
-      type: "unlock",
-      title: "Deposit Unlock Scheduled",
-      message: "Your locked deposit of 500 KOLI will unlock in 3 days",
-      time: "10 minutes ago",
-      icon: IconLockOpen,
-      priority: "high",
+      section: "Account & Deposit History",
+      entries: [
+        {
+          id: 1,
+          title: "Deposit Unlock Schedule",
+          message:
+            "Reflecting your personal timeline: Your next scheduled unlock event is set for Feb 23, 2026. This is a system-generated log based on your account's specific vesting period.",
+          loggedAt: "Logged: Feb 19, 2026 - 09:10 AM",
+          icon: IconLock,
+        },
+        {
+          id: 2,
+          title: "Deposit Status — LOCKED",
+          message:
+            "Your deposit is currently locked and will be accessible once the lock-up period ends.",
+          loggedAt: "Logged: Feb 19, 2026 - 09:25 AM",
+          icon: IconLockOpen,
+        },
+      ],
     },
     {
-      id: 2,
-      type: "announcement",
-      title: "Platform Maintenance",
-      message: "Scheduled maintenance on Feb 5, 2026 at 2:00 AM UTC",
-      time: "2 hours ago",
-      icon: IconAlertCircle,
-      priority: "medium",
+      section: "Platform Status Logs",
+      entries: [
+        {
+          id: 3,
+          title: "System Maintenance",
+          message:
+            "Status: Stable. There are currently no maintenance schedules. For real-time updates or emergency alerts, please refer to the Official Telegram Group. (Note: During active updates, this log will reflect: \"Ongoing maintenance: Bugs may appear intermittently today.\")",
+          loggedAt: "Logged: Feb 19, 2026 - 09:40 AM",
+          icon: IconSettings,
+        },
+        {
+          id: 4,
+          title: "New Feature Deployment",
+          message:
+            "Status: Update Pending. New features are rolled out based on the roadmap. Please refer to the Telegram Group for the full list of recent announcements and version history.",
+          loggedAt: "Logged: Feb 19, 2026 - 09:45 AM",
+          icon: IconRocket,
+        },
+      ],
     },
     {
-      id: 3,
-      type: "info",
-      title: "Staking Rewards Available",
-      message: "You've earned 25 KOLI in staking rewards this week",
-      time: "5 hours ago",
-      icon: IconInfoCircle,
-      priority: "low",
-    },
-    {
-      id: 4,
-      type: "unlock",
-      title: "Deposit Unlocked",
-      message: "Your deposit of 1,000 KOLI has been unlocked",
-      time: "1 day ago",
-      icon: IconLockOpen,
-      priority: "high",
-    },
-    {
-      id: 5,
-      type: "announcement",
-      title: "New Features Released",
-      message: "Check out the new portfolio analytics dashboard",
-      time: "2 days ago",
-      icon: IconBell,
-      priority: "low",
+      section: "Upcoming Protocols (Pending Logs)",
+      entries: [
+        {
+          id: 5,
+          title: "Mining Activity",
+          message:
+            "STATUS: INACTIVE (COMING SOON). The mining protocol is currently being integrated into the dashboard. History for this section will populate once the feature is live.",
+          loggedAt: "Logged: Feb 19, 2026 - 09:55 AM",
+          icon: IconPick,
+        },
+        {
+          id: 6,
+          title: "Staking Rewards",
+          message:
+            "STATUS: PENDING (COMING SOON). Staking yield history and reward distribution logs are awaiting protocol launch. Refer to the Telegram Group for staking reward announcements.",
+          loggedAt: "Logged: Feb 19, 2026 - 10:05 AM",
+          icon: IconChartArcs,
+        },
+      ],
     },
   ];
 
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case "high":
-        return "bg-red-500/10 text-red-500 border-red-500/20";
-      case "medium":
-        return "bg-yellow-500/10 text-yellow-500 border-yellow-500/20";
-      case "low":
-        return "bg-blue-500/10 text-blue-500 border-blue-500/20";
-      default:
-        return "bg-muted text-muted-foreground";
+  const getSectionTheme = (section: string) => {
+    if (section === "Account & Deposit History") {
+      return {
+        sectionIcon: "text-green-500",
+        sectionTitle: "text-green-400",
+        entryCard: "bg-green-500/5 border-green-500/20",
+        iconWrap: "bg-green-500/10",
+        iconColor: "text-green-400",
+        badgeClass: "bg-green-500/10 text-green-400 border-green-500/20",
+        badgeLabel: "Account Logs",
+      };
     }
-  };
 
-  const getIconColor = (type: string) => {
-    switch (type) {
-      case "unlock":
-        return "text-green-500";
-      case "announcement":
-        return "text-yellow-500";
-      case "info":
-        return "text-blue-500";
-      default:
-        return "text-muted-foreground";
+    if (section === "Platform Status Logs") {
+      return {
+        sectionIcon: "text-blue-500",
+        sectionTitle: "text-blue-400",
+        entryCard: "bg-blue-500/5 border-blue-500/20",
+        iconWrap: "bg-blue-500/10",
+        iconColor: "text-blue-400",
+        badgeClass: "bg-blue-500/10 text-blue-400 border-blue-500/20",
+        badgeLabel: "Platform Logs",
+      };
     }
+
+    return {
+      sectionIcon: "text-koli-gold",
+      sectionTitle: "text-koli-gold",
+      entryCard: "bg-koli-gold/5 border-koli-gold/20",
+      iconWrap: "bg-koli-gold/10",
+      iconColor: "text-koli-gold",
+      badgeClass: "bg-koli-gold/10 text-koli-gold border-koli-gold/20",
+      badgeLabel: "Pending Logs",
+    };
   };
 
   return (
@@ -101,54 +131,58 @@ export const ActivityCenter = () => {
           <div className="flex items-center justify-between">
             <CardTitle className="text-xl font-bold flex items-center gap-2">
               <IconBell className="h-5 w-5 text-primary" />
-              Activity Center
+              Activity Center (History & Logs)
             </CardTitle>
             <Badge variant="secondary" className="text-xs">
-              {notifications.filter((n) => n.priority === "high").length} High Priority
+              Informational
             </Badge>
           </div>
         </CardHeader>
         <CardContent>
           <ScrollArea className="h-[400px] pr-4">
             <div className="space-y-4">
-              {notifications.map((notification, index) => (
-                <React.Fragment key={notification.id}>
-                  <motion.div
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: index * 0.1 }}
-                    className="flex gap-4 group cursor-pointer hover:bg-muted/50 p-3 rounded-lg transition-colors"
-                  >
-                    <div
-                      className={`flex-shrink-0 w-10 h-10 rounded-full bg-muted flex items-center justify-center ${getIconColor(
-                        notification.type
-                      )}`}
-                    >
-                      <notification.icon className="h-5 w-5" />
+              {logs.map((group, groupIndex) => (
+                <div key={group.section} className="space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <IconBuilding className={`h-4 w-4 ${getSectionTheme(group.section).sectionIcon}`} />
+                      <h3 className={`text-sm font-semibold ${getSectionTheme(group.section).sectionTitle}`}>{group.section}</h3>
                     </div>
-                    <div className="flex-1 space-y-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <h4 className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors">
-                          {notification.title}
-                        </h4>
-                        <Badge
-                          className={getPriorityColor(notification.priority)}
-                          variant="outline"
-                        >
-                          {notification.priority}
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        {notification.message}
-                      </p>
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <IconCalendar className="h-3 w-3" />
-                        <span>{notification.time}</span>
-                      </div>
-                    </div>
-                  </motion.div>
-                  {index < notifications.length - 1 && <Separator />}
-                </React.Fragment>
+                    <Badge variant="outline" className={`text-[10px] ${getSectionTheme(group.section).badgeClass}`}>
+                      {getSectionTheme(group.section).badgeLabel}
+                    </Badge>
+                  </div>
+
+                  {group.entries.map((entry, index) => (
+                    <React.Fragment key={entry.id}>
+                      <motion.div
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: (groupIndex + index) * 0.08 }}
+                        className={`flex gap-4 p-3 rounded-lg border ${getSectionTheme(group.section).entryCard}`}
+                      >
+                        <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${getSectionTheme(group.section).iconWrap} ${getSectionTheme(group.section).iconColor}`}>
+                          <entry.icon className="h-5 w-5" />
+                        </div>
+                        <div className="flex-1 space-y-1.5">
+                          <h4 className="text-sm font-semibold text-foreground">
+                            {entry.title}
+                          </h4>
+                          <p className="text-xs text-muted-foreground">
+                            {entry.message}
+                          </p>
+                          <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                            <IconCalendar className="h-3 w-3" />
+                            <span>{entry.loggedAt}</span>
+                          </div>
+                        </div>
+                      </motion.div>
+                      {index < group.entries.length - 1 && <Separator />}
+                    </React.Fragment>
+                  ))}
+
+                  {groupIndex < logs.length - 1 && <Separator />}
+                </div>
               ))}
             </div>
           </ScrollArea>

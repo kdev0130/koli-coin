@@ -3,9 +3,33 @@ import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
 
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+}
+
+declare global {
+  interface Window {
+    __koliDeferredInstallPrompt?: BeforeInstallPromptEvent | null;
+  }
+}
+
 const savedTheme = localStorage.getItem("koli-theme");
 const shouldUseDark = savedTheme ? savedTheme === "dark" : true;
 document.documentElement.classList.toggle("dark", shouldUseDark);
+
+window.__koliDeferredInstallPrompt = window.__koliDeferredInstallPrompt ?? null;
+
+window.addEventListener("beforeinstallprompt", (event) => {
+  event.preventDefault();
+  window.__koliDeferredInstallPrompt = event as BeforeInstallPromptEvent;
+  window.dispatchEvent(new CustomEvent("koli:installprompt-ready"));
+});
+
+window.addEventListener("appinstalled", () => {
+  window.__koliDeferredInstallPrompt = null;
+  window.dispatchEvent(new CustomEvent("koli:app-installed"));
+});
 
 function initApp() {
   const rootElement = document.getElementById("root");

@@ -4,6 +4,17 @@ import { IconDeviceMobile, IconShare, IconPlus, IconCheck, IconExternalLink } fr
 import koliLogo from "@/assets/koli-logo.png";
 import { Button } from "@/components/ui/button";
 
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+}
+
+declare global {
+  interface Window {
+    __koliDeferredInstallPrompt?: BeforeInstallPromptEvent | null;
+  }
+}
+
 type InstallState = 
   | "detecting" 
   | "android-ready" 
@@ -16,21 +27,46 @@ type InstallState =
 
 export const InstallApp = () => {
   const [installState, setInstallState] = useState<InstallState>("detecting");
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
 
   useEffect(() => {
     detectPlatformAndState();
 
+    const syncDeferredPrompt = () => {
+      const promptEvent = window.__koliDeferredInstallPrompt ?? null;
+      setDeferredPrompt(promptEvent);
+    };
+
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
-      setDeferredPrompt(e);
+      window.__koliDeferredInstallPrompt = e as BeforeInstallPromptEvent;
+      syncDeferredPrompt();
       setInstallState("android-ready");
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
 
+    const handleAppInstalled = () => {
+      window.__koliDeferredInstallPrompt = null;
+      setDeferredPrompt(null);
+      setInstallState("already-installed");
+    };
+
+    const handlePromptReady = () => {
+      syncDeferredPrompt();
+    };
+
+    window.addEventListener("appinstalled", handleAppInstalled);
+    window.addEventListener("koli:installprompt-ready", handlePromptReady);
+    window.addEventListener("koli:app-installed", handleAppInstalled);
+
+    syncDeferredPrompt();
+
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", handleAppInstalled);
+      window.removeEventListener("koli:installprompt-ready", handlePromptReady);
+      window.removeEventListener("koli:app-installed", handleAppInstalled);
     };
   }, []);
 
@@ -80,8 +116,10 @@ export const InstallApp = () => {
   };
 
   const handleAndroidInstall = async () => {
-    if (!deferredPrompt) {
-      // Keep native install-only flow for Android
+    const promptEvent = deferredPrompt || window.__koliDeferredInstallPrompt || null;
+
+    if (!promptEvent) {
+      // Keep button active while waiting for browser to provide native prompt event
       setInstallState("android-ready");
       return;
     }
@@ -90,10 +128,10 @@ export const InstallApp = () => {
 
     try {
       // Show native install prompt
-      deferredPrompt.prompt();
+      await promptEvent.prompt();
       
       // Wait for user choice
-      const { outcome } = await deferredPrompt.userChoice;
+      const { outcome } = await promptEvent.userChoice;
       
       if (outcome === 'accepted') {
         // Installation successful
@@ -104,11 +142,13 @@ export const InstallApp = () => {
         // User dismissed prompt
         setInstallState("android-ready");
       }
-      
-      setDeferredPrompt(null);
     } catch (error) {
       console.error('Install error:', error);
       setInstallState("android-ready");
+    } finally {
+      // A beforeinstallprompt event can only be used once.
+      window.__koliDeferredInstallPrompt = null;
+      setDeferredPrompt(null);
     }
   };
 
@@ -147,7 +187,7 @@ export const InstallApp = () => {
               <IconCheck size={40} className="text-primary" />
             </div>
             <h2 className="text-2xl font-bold text-foreground mb-2">App Already Installed</h2>
-            <p className="text-muted-foreground">Opening $KOLI...</p>
+            <p className="text-muted-foreground">You may now leave this page.</p>
           </motion.div>
         )}
 
@@ -204,7 +244,6 @@ export const InstallApp = () => {
 
             <Button
               onClick={handleAndroidInstall}
-              disabled={!deferredPrompt}
               className="w-full h-14 text-lg bg-gradient-to-r from-blue-600 to-emerald-500 hover:from-blue-700 hover:to-emerald-600 text-white"
             >
               Install App Now
@@ -212,7 +251,7 @@ export const InstallApp = () => {
 
             {!deferredPrompt ? (
               <p className="text-center text-xs text-muted-foreground mt-4">
-                Preparing native Android install prompt...
+                Tap Install App Now to open the native install prompt
               </p>
             ) : (
               <p className="text-center text-xs text-muted-foreground mt-4">

@@ -10,7 +10,7 @@ export default defineConfig(({ mode }) => ({
     host: "::",
     port: 8080,
     hmr: {
-      overlay: false,
+      overlay: true,
     },
   },
   plugins: [
@@ -18,9 +18,12 @@ export default defineConfig(({ mode }) => ({
     mode === "development" && componentTagger(),
     VitePWA({
       registerType: 'autoUpdate',
+      devOptions: {
+        enabled: false,
+      },
       includeAssets: ['robots.txt', 'koli-logo.png'],
       manifest: {
-        name: '$KOLI - Crypto Investment Platform',
+        name: '$KOLI - Crypto Donation Platform',
         short_name: 'KOLI',
         description: 'Donation contracts, mining, and cryptocurrency investment platform',
         theme_color: '#D4AF37',

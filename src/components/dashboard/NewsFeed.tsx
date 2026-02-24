@@ -1,60 +1,141 @@
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import {
   IconNews,
   IconCoin,
   IconUsers,
   IconTrendingUp,
-  IconBell,
-  IconCalendar,
 } from "@tabler/icons-react";
+import { collection, onSnapshot, type Timestamp } from "firebase/firestore";
 import { BentoGrid, BentoGridItem } from "@/components/ui/bento-grid";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { db } from "@/lib/firebase";
+
+type NewsType = "news" | "coin" | "community" | "update";
+
+type NewsItem = {
+  id: string;
+  type: NewsType;
+  categoryLabel: string;
+  title: string;
+  description: string;
+  date: string;
+  image?: string;
+};
+
+type FirestoreNewsDoc = {
+  category?: string;
+  type?: string;
+  title?: string;
+  details?: string;
+  description?: string;
+  imageUrl?: string;
+  image?: string;
+  postedAt?: string | number | Date | Timestamp;
+  createdAt?: string | number | Date | Timestamp;
+};
 
 export const NewsFeed = () => {
-  // Mock news data - replace with actual data from your API/Admin
-  const newsItems = [
-    {
-      id: 1,
-      type: "news",
-      title: "Platform Launch Update",
-      description:
-        "KOLI platform is officially live! Join thousands of users already participating in the community.",
-      date: "2 hours ago",
-      icon: IconNews,
-      image: "https://images.unsplash.com/photo-1639762681485-074b7f938ba0?w=500&q=80",
-    },
-    {
-      id: 2,
-      type: "coin",
-      title: "Token Milestone Reached",
-      description:
-        "We've reached 2.5M KOLI coins! 25% of our initial goal achieved. Keep building!",
-      date: "5 hours ago",
-      icon: IconCoin,
-      image: "https://images.unsplash.com/photo-1621416894569-0f39ed31d247?w=500&q=80",
-    },
-    {
-      id: 3,
-      type: "community",
-      title: "Community Milestone",
-      description:
-        "10,000 members joined the KOLI Kingdom! Special rewards coming for early adopters.",
-      date: "1 day ago",
-      icon: IconUsers,
-      image: "https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=500&q=80",
-    },
-    {
-      id: 4,
-      type: "update",
-      title: "New Features Announced",
-      description:
-        "Wallet integration and staking features launching next week. Stay tuned for more updates!",
-      date: "2 days ago",
-      icon: IconTrendingUp,
-    },
-  ];
+  const [newsItems, setNewsItems] = useState<NewsItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const relativeFormatter = useMemo(
+    () => new Intl.RelativeTimeFormat("en", { numeric: "auto" }),
+    [],
+  );
+
+  const getSafeDate = (value?: FirestoreNewsDoc["postedAt"]) => {
+    if (!value) return null;
+
+    if (typeof value === "object" && "toDate" in value && typeof value.toDate === "function") {
+      const date = value.toDate();
+      return date instanceof Date && !Number.isNaN(date.getTime()) ? date : null;
+    }
+
+    const date = value instanceof Date ? value : new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  };
+
+  const formatRelativeDate = (date: Date | null) => {
+    if (!date) return "Just now";
+
+    const seconds = Math.round((date.getTime() - Date.now()) / 1000);
+    const absoluteSeconds = Math.abs(seconds);
+
+    if (absoluteSeconds < 60) return relativeFormatter.format(seconds, "second");
+
+    const minutes = Math.round(seconds / 60);
+    if (Math.abs(minutes) < 60) return relativeFormatter.format(minutes, "minute");
+
+    const hours = Math.round(minutes / 60);
+    if (Math.abs(hours) < 24) return relativeFormatter.format(hours, "hour");
+
+    const days = Math.round(hours / 24);
+    return relativeFormatter.format(days, "day");
+  };
+
+  const normalizeType = (value?: string): NewsType => {
+    const normalized = value?.trim().toLowerCase();
+
+    if (!normalized) return "news";
+    if (["coin", "coins", "token"].includes(normalized)) return "coin";
+    if (["community", "member", "members"].includes(normalized)) return "community";
+    if (["update", "platform", "announcement"].includes(normalized)) return "update";
+    if (["news"].includes(normalized)) return "news";
+
+    return "news";
+  };
+
+  useEffect(() => {
+    const unsubscribe = onSnapshot(
+      collection(db, "news"),
+      (snapshot) => {
+        const mapped = snapshot.docs
+          .map((doc) => {
+            const data = doc.data() as FirestoreNewsDoc;
+            const date = getSafeDate(data.postedAt ?? data.createdAt);
+
+            return {
+              id: doc.id,
+              type: normalizeType(data.category ?? data.type),
+              categoryLabel: (data.category ?? data.type ?? "News").toString().trim(),
+              title: data.title?.trim() || "Untitled update",
+              description: data.details?.trim() || data.description?.trim() || "No details provided.",
+              date: formatRelativeDate(date),
+              image: data.imageUrl || data.image,
+              sortDate: date?.getTime() ?? 0,
+            };
+          })
+          .sort((a, b) => b.sortDate - a.sortDate)
+          .map(({ sortDate, ...item }) => item);
+
+        setNewsItems(mapped);
+        setIsLoading(false);
+        setError(null);
+      },
+      (snapshotError) => {
+        console.error("Failed to fetch news:", snapshotError);
+        setError("Unable to load news right now.");
+        setIsLoading(false);
+      },
+    );
+
+    return () => unsubscribe();
+  }, [relativeFormatter]);
+
+  const getTypeIcon = (type: NewsType) => {
+    switch (type) {
+      case "coin":
+        return IconCoin;
+      case "community":
+        return IconUsers;
+      case "update":
+        return IconTrendingUp;
+      default:
+        return IconNews;
+    }
+  };
 
   const getTypeColor = (type: string) => {
     switch (type) {
@@ -84,11 +165,29 @@ export const NewsFeed = () => {
           News Feed
         </h2>
         <Badge variant="secondary" className="text-xs">
-          {newsItems.length} Updates
+          {isLoading ? "Loading..." : `${newsItems.length} Updates`}
         </Badge>
       </div>
 
+      {error ? (
+        <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
+          {error}
+        </div>
+      ) : null}
+
       <BentoGrid className="max-w-full mx-0">
+        {!isLoading && newsItems.length === 0 ? (
+          <BentoGridItem
+            title="No news yet"
+            description="New announcements will appear here once posted."
+            header={
+              <div className="flex flex-1 w-full h-full min-h-[6rem] rounded-xl bg-gradient-to-br from-neutral-200 dark:from-neutral-900 dark:to-neutral-800 to-neutral-100 items-center justify-center">
+                <IconNews className="h-12 w-12 text-neutral-400 dark:text-neutral-600" />
+              </div>
+            }
+          />
+        ) : null}
+
         {newsItems.map((item, index) => (
           <BentoGridItem
             key={item.id}
@@ -105,14 +204,16 @@ export const NewsFeed = () => {
                 </div>
               ) : (
                 <div className="flex flex-1 w-full h-full min-h-[6rem] rounded-xl bg-gradient-to-br from-neutral-200 dark:from-neutral-900 dark:to-neutral-800 to-neutral-100 items-center justify-center">
-                  <item.icon className="h-12 w-12 text-neutral-400 dark:text-neutral-600" />
+                  {React.createElement(getTypeIcon(item.type), {
+                    className: "h-12 w-12 text-neutral-400 dark:text-neutral-600",
+                  })}
                 </div>
               )
             }
             icon={
               <div className="flex items-center gap-2">
                 <Badge className={getTypeColor(item.type)} variant="outline">
-                  {item.type}
+                  {item.categoryLabel}
                 </Badge>
                 <span className="text-xs text-muted-foreground">{item.date}</span>
               </div>

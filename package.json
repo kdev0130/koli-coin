@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "deploy:rules": "node scripts/deployRules.mjs",
+    "fetch:kyc-approved-members": "node scripts/fetchApprovedKycMembers.mjs",
     "seed:leader-codes": "node scripts/addLeaderPlatformCodes.mjs",
     "seed:leader-codes:force": "node scripts/addLeaderPlatformCodes.mjs --force"
   },

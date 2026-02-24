@@ -1,8 +1,7 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { useNavigate } from "react-router-dom";
 import {
-  IconLogout,
   IconHome,
   IconGift,
   IconUser,
@@ -12,6 +11,7 @@ import {
   IconCheck,
 } from "@tabler/icons-react";
 import { Pickaxe } from "lucide-react";
+import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import koliLogo from "@/assets/koli-logo.png";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,13 +22,19 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { HeaderWithdrawable } from "@/components/common/HeaderWithdrawable";
+import { db } from "@/lib/firebase";
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const Mining = () => {
   const navigate = useNavigate();
-  const { logout, userData } = useAuth();
+  const { userData } = useAuth();
   const [email, setEmail] = useState("");
   const [isJoined, setIsJoined] = useState(false);
   const [alertSet, setAlertSet] = useState(false);
+  const [isLoadingWaitlist, setIsLoadingWaitlist] = useState(true);
+  const [isJoiningWaitlist, setIsJoiningWaitlist] = useState(false);
+  const [isUpdatingAlert, setIsUpdatingAlert] = useState(false);
 
   // Mock data - replace with actual data
   const coinCreationProgress = {
@@ -37,33 +43,149 @@ const Mining = () => {
   };
   const coinCreationPercentage = Math.min(100, Number(((coinCreationProgress.current / coinCreationProgress.target) * 100).toFixed(2)));
 
-  const handleLogout = async () => {
-    try {
-      await logout();
-      navigate("/signin");
-    } catch (error) {
-      console.error("Logout error:", error);
-    }
-  };
+  useEffect(() => {
+    let isCancelled = false;
 
-  const handleJoinWaitlist = () => {
-    if (!email) {
+    const loadWaitlistStatus = async () => {
+      if (!userData?.uid) {
+        if (!isCancelled) {
+          setIsLoadingWaitlist(false);
+        }
+        return;
+      }
+
+      setIsLoadingWaitlist(true);
+      try {
+        const waitlistRef = doc(db, "waitlist", userData.uid);
+        const waitlistSnapshot = await getDoc(waitlistRef);
+
+        if (isCancelled) return;
+
+        if (waitlistSnapshot.exists()) {
+          const data = waitlistSnapshot.data();
+          const storedEmail = typeof data.email === "string" ? data.email : "";
+          const hasJoined = Boolean(data.hasJoined) || Boolean(storedEmail);
+
+          setIsJoined(hasJoined);
+          setAlertSet(Boolean(data.isAlertSet));
+          setEmail(storedEmail || userData.email || "");
+        } else {
+          setIsJoined(false);
+          setAlertSet(false);
+          setEmail(userData.email || "");
+        }
+      } catch (error) {
+        console.error("Error loading waitlist status:", error);
+        if (!isCancelled) {
+          toast.error("Couldn't load your waitlist status. Please refresh.");
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoadingWaitlist(false);
+        }
+      }
+    };
+
+    void loadWaitlistStatus();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [userData?.uid, userData?.email]);
+
+  const handleJoinWaitlist = async () => {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!normalizedEmail) {
       toast.error("Please enter your email address");
       return;
     }
-    
-    // Simulate API call
-    setIsJoined(true);
-    toast.success("Successfully joined the waitlist!", {
-      description: "We'll notify you when mining launches.",
-    });
+
+    if (!EMAIL_REGEX.test(normalizedEmail)) {
+      toast.error("Please enter a valid email address");
+      return;
+    }
+
+    if (isJoined) {
+      toast.error("You already joined the waitlist with one email.");
+      return;
+    }
+
+    if (!userData?.uid) {
+      toast.error("Please sign in to join the waitlist.");
+      return;
+    }
+
+    try {
+      setIsJoiningWaitlist(true);
+      await setDoc(
+        doc(db, "waitlist", userData.uid),
+        {
+          userId: userData.uid,
+          email: normalizedEmail,
+          hasJoined: true,
+          isAlertSet: alertSet,
+          joinedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      setEmail(normalizedEmail);
+      setIsJoined(true);
+      toast.success("Successfully joined the waitlist!", {
+        description: "We'll notify you when mining launches.",
+      });
+    } catch (error) {
+      console.error("Error joining waitlist:", error);
+      toast.error("Failed to join waitlist. Please try again.");
+    } finally {
+      setIsJoiningWaitlist(false);
+    }
   };
 
-  const handleSetAlert = () => {
-    setAlertSet(true);
-    toast.success("Alert set!", {
-      description: "You'll receive a notification when mining is available.",
-    });
+  const handleToggleAlert = async () => {
+    if (!userData?.uid) {
+      toast.error("Please sign in to set launch alerts.");
+      return;
+    }
+
+    if (!isJoined) {
+      toast.error("Join the waitlist first before setting launch alerts.");
+      return;
+    }
+
+    const nextAlertValue = !alertSet;
+
+    try {
+      setIsUpdatingAlert(true);
+      await setDoc(
+        doc(db, "waitlist", userData.uid),
+        {
+          userId: userData.uid,
+          isAlertSet: nextAlertValue,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      setAlertSet(nextAlertValue);
+
+      if (nextAlertValue) {
+        toast.success("Alert set!", {
+          description: "You'll receive a notification when mining is available.",
+        });
+      } else {
+        toast.success("Alert removed", {
+          description: "You can turn it back on anytime.",
+        });
+      }
+    } catch (error) {
+      console.error("Error updating launch alert:", error);
+      toast.error("Couldn't update launch alert. Please try again.");
+    } finally {
+      setIsUpdatingAlert(false);
+    }
   };
 
   return (
@@ -210,7 +332,9 @@ const Mining = () => {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {!isJoined ? (
+                {isLoadingWaitlist ? (
+                  <p className="text-sm text-muted-foreground">Loading your waitlist status...</p>
+                ) : !isJoined ? (
                   <>
                     <div className="space-y-2">
                       <Label htmlFor="email">Email Address</Label>
@@ -220,17 +344,19 @@ const Mining = () => {
                         placeholder="your@email.com"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
+                        disabled={isJoiningWaitlist}
                         className="w-full"
                       />
                     </div>
 
                     <Button
                       onClick={handleJoinWaitlist}
+                      disabled={isJoiningWaitlist}
                       className="w-full bg-gradient-to-r from-koli-gold to-koli-gold-dark hover:from-koli-gold-dark hover:to-koli-gold text-koli-navy font-bold"
                       size="lg"
                     >
                       <IconRocket className="h-5 w-5 mr-2" />
-                      Join Waitlist
+                      {isJoiningWaitlist ? "Joining..." : "Join Waitlist"}
                     </Button>
                   </>
                 ) : (
@@ -264,21 +390,28 @@ const Mining = () => {
                   Get notified in-app when mining is available
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                {!alertSet ? (
-                  <Button
-                    onClick={handleSetAlert}
-                    variant="outline"
-                    className="w-full border-primary/50 hover:bg-primary/10"
-                    size="lg"
-                  >
-                    <IconBell className="h-5 w-5 mr-2" />
-                    Set Alert for Launch
-                  </Button>
+              <CardContent className="space-y-3">
+                <Button
+                  onClick={handleToggleAlert}
+                  variant="outline"
+                  disabled={isLoadingWaitlist || isUpdatingAlert || !isJoined}
+                  className="w-full border-primary/50 hover:bg-primary/10 disabled:opacity-60"
+                  size="lg"
+                >
+                  <IconBell className="h-5 w-5 mr-2" />
+                  {isUpdatingAlert ? "Saving..." : alertSet ? "Unset Launch Alert" : "Set Alert for Launch"}
+                </Button>
+
+                {!isJoined ? (
+                  <p className="text-xs text-muted-foreground text-center">
+                    Join the waitlist first to enable launch alerts.
+                  </p>
                 ) : (
-                  <div className="flex items-center justify-center gap-2 py-3 text-green-500">
-                    <IconCheck className="h-5 w-5" />
-                    <span className="font-semibold">Alert Set Successfully</span>
+                  <div className={`flex items-center justify-center gap-2 py-1 ${alertSet ? "text-green-500" : "text-muted-foreground"}`}>
+                    {alertSet && <IconCheck className="h-5 w-5" />}
+                    <span className="font-semibold">
+                      {alertSet ? "Alert is set" : "Alert is not set"}
+                    </span>
                   </div>
                 )}
               </CardContent>
