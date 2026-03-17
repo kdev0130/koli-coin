@@ -1,10 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { useNavigate } from "react-router-dom";
 import {
-  IconHome,
-  IconGift,
-  IconUser,
   IconBell,
   IconRocket,
   IconClock,
@@ -21,13 +17,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import { BottomNavigation } from "@/components/common/BottomNavigation";
 import { HeaderWithdrawable } from "@/components/common/HeaderWithdrawable";
 import { db } from "@/lib/firebase";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const Mining = () => {
-  const navigate = useNavigate();
   const { userData } = useAuth();
   const [email, setEmail] = useState("");
   const [isJoined, setIsJoined] = useState(false);
@@ -473,34 +469,7 @@ const Mining = () => {
         </div>
       </main>
 
-      {/* Bottom Navigation */}
-      <nav
-        className="ios-fixed-nav fixed bottom-0 left-0 right-0 z-[9999] flex items-center justify-around px-4 py-2 pb-[env(safe-area-inset-bottom)] border-t border-border bg-card backdrop-blur-lg"
-        style={{ 
-          position: 'fixed',
-          transform: 'translate3d(0, 0, 0)',
-          WebkitTransform: 'translate3d(0, 0, 0)',
-          touchAction: 'none'
-        }}
-      >
-        {[
-          { icon: IconHome, label: "Home", path: "/dashboard" },
-          { icon: IconGift, label: "Donation", path: "/donation" },
-          { icon: Pickaxe, label: "Mining", path: "/mining" },
-          { icon: IconUser, label: "Profile", path: "/profile" },
-        ].map((item, index) => (
-          <button
-            key={item.label}
-            onClick={() => navigate(item.path)}
-            className={`flex flex-col items-center gap-1 px-3 py-1 rounded-lg transition-colors ${
-              index === 2 ? "text-primary" : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <item.icon size={22} />
-            <span className="text-xs">{item.label}</span>
-          </button>
-        ))}
-      </nav>
+      <BottomNavigation />
     </div>
   );
 };

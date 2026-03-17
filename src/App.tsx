@@ -28,6 +28,7 @@ import InstallApp from "./pages/InstallApp";
 import MaintenanceMode from "./pages/MaintenanceMode";
 import NotFound from "./pages/NotFound";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import WalletAuth from "./pages/WalletAuth";
 import VerifyResetOTP from "./pages/VerifyResetOTP";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 
@@ -227,6 +228,9 @@ function AppRoutes() {
         {/* Auth Routes */}
         <Route path="/signup" element={<SignUp />} />
         <Route path="/signin" element={<SignIn />} />
+        
+        {/* Wallet Authorization */}
+        <Route path="/wallet-auth" element={<WalletAuth />} />
         
         {/* PIN Setup (optional - set during KYC or anytime) */}
         <Route path="/pin-setup" element={<PinSetup />} />

@@ -3,10 +3,15 @@ import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { useAuth } from "@/contexts/AuthContext";
 import { db } from "@/lib/firebase";
 import { createNotificationIfMissing } from "@/lib/notifications";
-import { DonationContract, canWithdraw } from "@/lib/donationContract";
+import {
+  DonationContract,
+  canWithdraw,
+  getContractAdjustmentDetails,
+  getContractUnlockDate,
+  getContractType,
+} from "@/lib/donationContract";
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
-const FIRST_WITHDRAWAL_DAYS = 30;
 const NEAR_WITHDRAWAL_THRESHOLD_DAYS = 3;
 const ACTIVE_CONTRACT_STATUSES = new Set(["active", "approved"]);
 const APPROVED_PAYOUT_STATUSES = new Set(["approved", "completed"]);
@@ -75,12 +80,23 @@ export const NotificationSync = () => {
           const contractId = contract.id;
 
           if (ACTIVE_CONTRACT_STATUSES.has(contract.status) && hasContractStarted(contract)) {
+            const adjustment = getContractAdjustmentDetails(contract);
+            const isAdjusted = adjustment.isAdjusted;
+
             void createNotificationIfMissing({
               userId,
-              notificationId: `${userId}_donation_approved_${contractId}`,
-              type: "donation_approved",
-              title: "Donation Contract Approved",
-              message: `Your donation contract of ${toCurrency(contract.donationAmount || 0)} KOLI is now active.`,
+              notificationId: isAdjusted
+                ? `${userId}_donation_adjusted_${contractId}_${adjustment.approvedAmount}`
+                : `${userId}_donation_approved_${contractId}`,
+              type: isAdjusted ? "donation_adjusted" : "donation_approved",
+              title: isAdjusted
+                ? "Donation Contract Approved (Adjusted)"
+                : "Donation Contract Approved",
+              message: isAdjusted
+                ? `Your donation was approved with adjustment: ${toCurrency(
+                    adjustment.approvedAmount
+                  )} KOLI verified from ${toCurrency(adjustment.originalAmount)} KOLI submitted.`
+                : `Your donation contract of ${toCurrency(adjustment.approvedAmount)} KOLI is now active.`,
               relatedId: contractId,
             }).catch((error) => {
               console.error("Failed to create donation approval notification:", error);
@@ -99,16 +115,13 @@ export const NotificationSync = () => {
             return;
           }
 
-          const startDate = parseDate(contract.donationStartDate || contract.approvedAt);
-          if (!startDate) {
+          const unlockDate = getContractUnlockDate(contract);
+          if (!unlockDate) {
             return;
           }
 
-          const firstWithdrawalDate = new Date(
-            startDate.getTime() + FIRST_WITHDRAWAL_DAYS * DAY_IN_MS
-          );
           const now = Date.now();
-          const daysUntilFirstWithdrawal = Math.ceil((firstWithdrawalDate.getTime() - now) / DAY_IN_MS);
+          const daysUntilFirstWithdrawal = Math.ceil((unlockDate.getTime() - now) / DAY_IN_MS);
 
           if (
             daysUntilFirstWithdrawal > 0 &&
@@ -119,7 +132,7 @@ export const NotificationSync = () => {
               notificationId: `${userId}_contract_near_${contractId}`,
               type: "contract_near_withdrawal",
               title: "Contract Near Withdrawal Window",
-              message: `Your contract ${contractId.slice(0, 8)} unlocks in ${daysUntilFirstWithdrawal} day(s).`,
+                message: `Your contract ${contractId.slice(0, 8)} unlocks in ${daysUntilFirstWithdrawal} day(s).`,
               relatedId: contractId,
             }).catch((error) => {
               console.error("Failed to create contract near-withdrawal notification:", error);
@@ -134,7 +147,10 @@ export const NotificationSync = () => {
                 notificationId: `${userId}_contract_ready_${contractId}`,
                 type: "contract_ready_withdrawal",
                 title: "Contract Ready To Withdraw",
-                message: `Your contract ${contractId.slice(0, 8)} has reached 30 days and is ready to withdraw.`,
+                message:
+                  getContractType(contract) === "monthly_12_no_principal"
+                    ? `Your contract ${contractId.slice(0, 8)} has reached its monthly withdrawal window and is ready.`
+                    : `Your lock-in contract ${contractId.slice(0, 8)} has matured and is ready to withdraw.`,
                 relatedId: contractId,
               }).catch((error) => {
                 console.error("Failed to create contract ready notification:", error);
@@ -198,4 +214,3 @@ export const NotificationSync = () => {
 
   return null;
 };
-

@@ -271,7 +271,7 @@ export const ManaRewardModal: React.FC<ManaRewardModalProps> = ({
                 </AnimatePresence>
               </div>
 
-              <DialogFooter className="flex gap-x-4">
+              <DialogFooter className="flex gap-2 sm:gap-4">
                 <Button
                   variant="outline"
                   onClick={onClose}

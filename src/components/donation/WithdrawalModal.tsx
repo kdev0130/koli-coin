@@ -22,7 +22,13 @@ import {
   IconClock,
   IconShield,
 } from "@tabler/icons-react";
-import { DonationContract, getWithdrawalDetails } from "@/lib/donationContract";
+import {
+  DonationContract,
+  getWithdrawalDetails,
+  getContractAdjustmentDetails,
+  getContractWithdrawalSlots,
+  getContractType,
+} from "@/lib/donationContract";
 import { canUserWithdraw, isUserFullyVerified } from "@/lib/kycService";
 import { validatePinFormat, verifyPin } from "@/lib/pinSecurity";
 import { toast } from "sonner";
@@ -60,7 +66,10 @@ export const WithdrawalModal: React.FC<WithdrawalModalProps> = ({
   if (!contract) return null;
 
   const details = getWithdrawalDetails(contract);
-  const withdrawalAmount = details.withdrawalPerPeriod;
+  const adjustment = getContractAdjustmentDetails(contract);
+  const isMonthlyPlan = getContractType(contract) === "monthly_12_no_principal";
+  const totalSlots = getContractWithdrawalSlots(contract);
+  const withdrawalAmount = isMonthlyPlan ? details.withdrawalPerPeriod : details.totalRemaining;
 
   // Check KYC status
   const { canWithdraw: kycAllowed, reason: kycReason } = canUserWithdraw(userData);
@@ -149,13 +158,18 @@ export const WithdrawalModal: React.FC<WithdrawalModalProps> = ({
                 <div>
                   <p className="text-xs text-muted-foreground">Contract Principal</p>
                   <p className="text-lg font-bold text-foreground">
-                    {contract.donationAmount.toLocaleString()} KOLI
+                    {adjustment.approvedAmount.toLocaleString()} KOLI
                   </p>
+                  {adjustment.isAdjusted && (
+                    <p className="text-xs text-yellow-500">
+                      Adjusted from {adjustment.originalAmount.toLocaleString()} KOLI
+                    </p>
+                  )}
                 </div>
                 <div className="text-right">
                   <p className="text-xs text-muted-foreground">Withdrawals</p>
                   <p className="text-sm font-semibold text-foreground">
-                    {details.withdrawalsUsed + 1}/12
+                    {Math.min(details.withdrawalsUsed + 1, totalSlots)}/{totalSlots}
                   </p>
                 </div>
               </div>
@@ -164,8 +178,12 @@ export const WithdrawalModal: React.FC<WithdrawalModalProps> = ({
 
               <div className="space-y-2">
                 <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Withdrawal Amount</span>
-                  <span className="text-sm font-semibold text-foreground">30%</span>
+                  <span className="text-sm text-muted-foreground">
+                    {isMonthlyPlan ? "Withdrawal Amount" : "Maturity Payout"}
+                  </span>
+                  <span className="text-sm font-semibold text-foreground">
+                    {isMonthlyPlan ? "30%" : "Full unlocked balance"}
+                  </span>
                 </div>
                 <div className="flex justify-between items-end">
                   <span className="text-xs text-muted-foreground">You will receive</span>

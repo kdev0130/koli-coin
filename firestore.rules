@@ -211,6 +211,26 @@ service cloud.firestore {
       allow write: if false;
     }
     
+    // Wallet Authorizations - OAuth-style authorization for KOLI Wallet
+    match /walletAuthorizations/{authCode} {
+      // Allow authenticated users to create authorization codes
+      allow create: if request.auth != null 
+                    && request.resource.data.userId == request.auth.uid;
+      // Allow anyone to read (wallet app needs to verify auth codes)
+      allow read: if true;
+      // Allow anyone to update (wallet app marks as used)
+      allow update: if true;
+      // No deletes
+      allow delete: if false;
+    }
+
+    // Wallet Accounts - tracks users who have authorized KOLI Wallet
+    match /walletAccounts/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null && request.auth.uid == userId;
+      allow update, delete: if false;
+    }
+    
     // Allow admins full access to remaining collections
     // This catch-all must come AFTER specific rules
     match /{document=**} {

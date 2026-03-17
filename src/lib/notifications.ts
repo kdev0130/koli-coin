@@ -12,6 +12,7 @@ import {
 export type NotificationType =
   | "kyc_approved"
   | "donation_approved"
+  | "donation_adjusted"
   | "transaction_approved"
   | "contract_near_withdrawal"
   | "contract_ready_withdrawal";

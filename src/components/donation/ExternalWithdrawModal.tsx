@@ -16,7 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { canUserWithdraw } from "@/lib/kycService";
 import { validatePinFormat, verifyPin } from "@/lib/pinSecurity";
-import odhexLogo from "@/assets/odhex-logo.png";
+import kkashLogo from "@/assets/koli-logo.png";
 import binanceLogo from "@/assets/binance.png";
 import coinbaseLogo from "@/assets/coinbase.png";
 import cryptoLogo from "@/assets/crypto.png";
@@ -90,7 +90,7 @@ export const ExternalWithdrawModal: React.FC<ExternalWithdrawModalProps> = ({
     }
   };
 
-  const handleODHexWithdrawal = () => {
+  const handleKKashWithdrawal = () => {
     if (!user?.email) return;
 
     const kyc = canUserWithdraw(userData);
@@ -98,39 +98,28 @@ export const ExternalWithdrawModal: React.FC<ExternalWithdrawModalProps> = ({
       toast.error(kyc.reason || "KYC verification required before withdrawal.");
       return;
     }
-    
-    setChecking(true);
-    
-    // Determine ODHex base URL based on environment
+
     const currentUrl = new URL(window.location.href);
-    let odhexBaseUrl: string;
-    
+    let kkashBaseUrl: string;
+
     if (currentUrl.hostname === 'koli-2bad9.web.app') {
-      // Production: Use ODHex production URL
-      odhexBaseUrl = 'https://odhex.com';
+      kkashBaseUrl = 'https://koli-wallet.web.app';
     } else if (currentUrl.hostname === 'localhost') {
-      // Development: Use localhost with port 8082
-      odhexBaseUrl = `${currentUrl.protocol}//localhost:8082`;
+      kkashBaseUrl = `${currentUrl.protocol}//localhost:3001`;
     } else {
-      // Mobile dev (IP address): Use same hostname with port 8082
-      odhexBaseUrl = `${currentUrl.protocol}//${currentUrl.hostname}:8082`;
+      kkashBaseUrl = `${currentUrl.protocol}//${currentUrl.hostname}:3001`;
     }
-    
-    // Encode parameters
+
     const params = new URLSearchParams({
       email: user.email,
       amount: withdrawableAmount.toFixed(2),
       source: "koli-coin",
       timestamp: new Date().toISOString(),
     });
-    
-    // Route to ODHex authentication first (SignIn/SignUp flow), then authorize
-    const targetUrl = `${odhexBaseUrl}/signin?${params.toString()}`;
-    
-    // Open ODHex in a new tab
+
+    const targetUrl = `${kkashBaseUrl}/login?${params.toString()}`;
     window.open(targetUrl, "_blank", "noopener,noreferrer");
     onClose();
-    setChecking(false);
   };
 
   return (
@@ -194,22 +183,18 @@ export const ExternalWithdrawModal: React.FC<ExternalWithdrawModalProps> = ({
         ) : (
           <>
         <div className="space-y-3 mt-4">
-          {/* ODHex - Available */}
-          <div 
+          {/* K-Kash - Available */}
+          <div
             className="flex items-center justify-between p-3 border-2 border-green-500 rounded-full hover:bg-green-500/10 transition-colors cursor-pointer group"
-            onClick={handleODHexWithdrawal}
+            onClick={handleKKashWithdrawal}
           >
             <div className="flex items-center gap-3">
-              <img src={odhexLogo} alt="ODHex" className="w-8 h-8 rounded-full object-cover" />
-              <div className="font-semibold text-sm">ODHex Exchange</div>
+              <img src={kkashLogo} alt="K-Kash" className="w-8 h-8 rounded-full object-cover" />
+              <div className="font-semibold text-sm">K-Kash</div>
             </div>
             <div className="flex items-center gap-2">
               <Badge className="bg-green-500 text-white text-xs">Available</Badge>
-              {checking ? (
-                <IconLoader className="w-4 h-4 animate-spin text-green-500" />
-              ) : (
-                <IconExternalLink className="w-4 h-4 text-green-500 group-hover:translate-x-1 transition-transform" />
-              )}
+              <IconExternalLink className="w-4 h-4 text-green-500 group-hover:translate-x-1 transition-transform" />
             </div>
           </div>
 
@@ -264,7 +249,7 @@ export const ExternalWithdrawModal: React.FC<ExternalWithdrawModalProps> = ({
 
         <div className="mt-4 p-4 bg-muted rounded-lg">
           <p className="text-sm text-muted-foreground">
-            <strong>Note:</strong> ODHex is currently the only available exchange partner. More platforms will be added soon. Your withdrawal amount will be transferred to your selected exchange account.
+            <strong>Note:</strong> K-Kash is currently the only available platform. More platforms will be added soon. Your withdrawal amount will be transferred to your selected exchange account.
           </p>
         </div>
           </>

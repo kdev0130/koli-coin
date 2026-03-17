@@ -1,12 +1,63 @@
 import { db } from "./firebase";
-import { collection, addDoc, doc, updateDoc, getDoc, serverTimestamp } from "firebase/firestore";
+import { collection, addDoc, doc, updateDoc, getDoc, serverTimestamp, writeBatch } from "firebase/firestore";
 import { verifyPin } from "./pinSecurity";
 import { canUserWithdraw } from "./kycService";
+
+export type DonationContractType =
+  | "monthly_12_no_principal"
+  | "lockin_6_compound"
+  | "lockin_12_compound";
+
+type ContractPlanConfig = {
+  type: DonationContractType;
+  label: string;
+  durationMonths: number;
+  compoundLockIn: boolean;
+  periodicRate: number;
+  withdrawalSlots: number;
+};
+
+const MONTHLY_PERIOD_DAYS = 30;
+
+const CONTRACT_PLAN_CONFIG: Record<DonationContractType, ContractPlanConfig> = {
+  monthly_12_no_principal: {
+    type: "monthly_12_no_principal",
+    label: "30% Monthly for 1 Year (Principal Unchanged)",
+    durationMonths: 12,
+    compoundLockIn: false,
+    periodicRate: 0.3,
+    withdrawalSlots: 12,
+  },
+  lockin_6_compound: {
+    type: "lockin_6_compound",
+    label: "6-Month Lock-In (30% Monthly Compounded)",
+    durationMonths: 6,
+    compoundLockIn: true,
+    periodicRate: 0.3,
+    withdrawalSlots: 1,
+  },
+  lockin_12_compound: {
+    type: "lockin_12_compound",
+    label: "12-Month Lock-In (30% Monthly Compounded)",
+    durationMonths: 12,
+    compoundLockIn: true,
+    periodicRate: 0.3,
+    withdrawalSlots: 1,
+  },
+};
 
 export interface DonationContract {
   id?: string;
   userId: string;
   donationAmount: number; // Principal - NEVER changes
+  contractType?: DonationContractType;
+  verifiedAmount?: number | null; // Admin-verified principal when adjusted
+  discrepancyAmount?: number | null; // Difference between submitted and verified amount
+  hasDiscrepancy?: boolean; // Flag for adjusted approvals
+  reviewOutcome?: string | null; // e.g. "approved_adjusted"
+  reviewNote?: string | null;
+  reviewedAt?: string | null;
+  reviewedBy?: string | null;
   donationStartDate: string | null; // ISO string - Set when approved by admin
   lastWithdrawalDate: string | null; // ISO string or null
   withdrawalsCount: number; // 0-12 (deprecated, kept for backwards compatibility)
@@ -22,6 +73,113 @@ export interface DonationContract {
   approvedBy?: string | null; // Admin user ID
 }
 
+export interface ContractAdjustmentDetails {
+  isAdjusted: boolean;
+  originalAmount: number;
+  approvedAmount: number;
+  discrepancyAmount: number;
+}
+
+const toSafeAmount = (value: unknown): number => {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return 0;
+  return Math.max(0, amount);
+};
+
+export function getContractType(contract: DonationContract): DonationContractType {
+  const value = contract.contractType;
+  if (value && value in CONTRACT_PLAN_CONFIG) {
+    return value;
+  }
+  return "monthly_12_no_principal";
+}
+
+export function getContractPlanConfig(contract: DonationContract): ContractPlanConfig {
+  return CONTRACT_PLAN_CONFIG[getContractType(contract)];
+}
+
+export function getContractPlanLabel(contract: DonationContract): string {
+  return getContractPlanConfig(contract).label;
+}
+
+export function calculateCompoundedContractValue(
+  principal: number,
+  months: number,
+  monthlyRate: number = 0.3
+): number {
+  const safePrincipal = Math.max(0, Number(principal) || 0);
+  const safeMonths = Math.max(0, Math.floor(Number(months) || 0));
+  const safeRate = Math.max(0, Number(monthlyRate) || 0);
+  return safePrincipal * Math.pow(1 + safeRate, safeMonths);
+}
+
+export function getContractMaxTotalWithdrawal(contract: DonationContract): number {
+  const principal = getContractPrincipal(contract);
+  const plan = getContractPlanConfig(contract);
+
+  if (plan.compoundLockIn) {
+    return calculateCompoundedContractValue(principal, plan.durationMonths, plan.periodicRate);
+  }
+
+  return principal * plan.periodicRate * plan.withdrawalSlots;
+}
+
+export function getContractWithdrawalSlots(contract: DonationContract): number {
+  return getContractPlanConfig(contract).withdrawalSlots;
+}
+
+export function getContractUnlockDate(contract: DonationContract): Date | null {
+  if (!contract.donationStartDate) return null;
+  const startDate = new Date(contract.donationStartDate);
+  const plan = getContractPlanConfig(contract);
+
+  if (plan.compoundLockIn) {
+    const unlockDate = new Date(startDate);
+    unlockDate.setMonth(unlockDate.getMonth() + plan.durationMonths);
+    return unlockDate;
+  }
+
+  const firstWithdrawalDate = new Date(startDate);
+  firstWithdrawalDate.setDate(firstWithdrawalDate.getDate() + MONTHLY_PERIOD_DAYS);
+  return firstWithdrawalDate;
+}
+
+export function getContractAdjustmentDetails(contract: DonationContract): ContractAdjustmentDetails {
+  const originalAmount = toSafeAmount(contract.donationAmount);
+  const verifiedRaw = contract.verifiedAmount;
+  const hasVerifiedAmount = verifiedRaw !== undefined && verifiedRaw !== null && Number.isFinite(Number(verifiedRaw));
+  const verifiedAmount = hasVerifiedAmount ? toSafeAmount(verifiedRaw) : originalAmount;
+  const outcomeAdjusted = String(contract.reviewOutcome || "").toLowerCase() === "approved_adjusted";
+  const amountAdjusted = hasVerifiedAmount && verifiedAmount !== originalAmount;
+  const isAdjusted = outcomeAdjusted || Boolean(contract.hasDiscrepancy) || amountAdjusted;
+
+  const explicitDiscrepancy =
+    contract.discrepancyAmount !== undefined && contract.discrepancyAmount !== null
+      ? toSafeAmount(contract.discrepancyAmount)
+      : Math.max(0, originalAmount - verifiedAmount);
+
+  const approvedAmount = isAdjusted ? verifiedAmount : originalAmount;
+  const discrepancyAmount = Math.max(
+    0,
+    explicitDiscrepancy || Math.max(0, originalAmount - approvedAmount)
+  );
+
+  return {
+    isAdjusted,
+    originalAmount,
+    approvedAmount,
+    discrepancyAmount,
+  };
+}
+
+export function getContractPrincipal(contract: DonationContract): number {
+  return getContractAdjustmentDetails(contract).approvedAmount;
+}
+
+export function hasAdjustedApproval(contract: DonationContract): boolean {
+  return getContractAdjustmentDetails(contract).isAdjusted;
+}
+
 /**
  * Create a new donation contract
  * @param userId - User's Firebase UID
@@ -35,6 +193,7 @@ export async function donate(
   userId: string,
   amount: number,
   paymentMethod: string,
+  contractType: DonationContractType = "monthly_12_no_principal",
   receiptURL?: string,
   receiptPath?: string
 ): Promise<string> {
@@ -48,6 +207,7 @@ export async function donate(
   const contract: Omit<DonationContract, "id"> = {
     userId,
     donationAmount: amount,
+    contractType,
     donationStartDate: null, // Will be set when admin approves
     lastWithdrawalDate: null,
     withdrawalsCount: 0,
@@ -64,6 +224,122 @@ export async function donate(
 
   const docRef = await addDoc(collection(db, "donationContracts"), contract);
   return docRef.id;
+}
+
+/**
+ * Create a donation contract using the user's withdrawable pool (contracts + MANA balance)
+ * @param userId - User's Firebase UID
+ * @param amount - Amount to re-donate from withdrawable pool
+ * @param contractType - Selected contract type
+ * @param contracts - Current list of user's contracts
+ * @param userBalance - Current user MANA/reward balance
+ * @returns New contract ID
+ */
+export async function donateFromWithdrawablePool(
+  userId: string,
+  amount: number,
+  contractType: DonationContractType,
+  contracts: DonationContract[],
+  userBalance: number = 0
+): Promise<string> {
+  if (amount <= 0) {
+    throw new Error("Donation amount must be greater than zero");
+  }
+
+  const safeContracts = contracts.filter((contract) => contract.userId === userId);
+  const {
+    totalAmount: totalWithdrawable,
+    contractWithdrawals,
+    eligibleContracts,
+  } = calculateTotalWithdrawable(safeContracts, userBalance);
+
+  if (amount > totalWithdrawable) {
+    throw new Error(
+      `Requested amount ${amount.toFixed(2)} KOLI exceeds withdrawable pool ${totalWithdrawable.toFixed(2)} KOLI`
+    );
+  }
+
+  const userRef = doc(db, "members", userId);
+  const userSnap = await getDoc(userRef);
+
+  if (!userSnap.exists()) {
+    throw new Error("User not found");
+  }
+
+  const liveUserData = userSnap.data();
+  const liveBalance = Number(liveUserData.balance || 0);
+
+  const amountFromContracts = Math.min(amount, contractWithdrawals);
+  const amountFromBalance = Math.max(0, amount - amountFromContracts);
+
+  if (amountFromBalance > liveBalance) {
+    throw new Error("Insufficient MANA balance for this re-donation amount");
+  }
+
+  const now = new Date();
+  const timestamp = now.toISOString();
+  const endDate = new Date(now);
+  const selectedPlan = CONTRACT_PLAN_CONFIG[contractType];
+  endDate.setMonth(endDate.getMonth() + selectedPlan.durationMonths);
+
+  const batch = writeBatch(db);
+
+  if (amountFromContracts > 0) {
+    const distribution = distributeWithdrawalAmount(amountFromContracts, eligibleContracts);
+
+    for (const item of distribution) {
+      const { contract, amount: consumedAmount } = item;
+
+      if (!contract.id) {
+        throw new Error("Contract ID missing for withdrawable pool re-donation");
+      }
+
+      const plan = getContractPlanConfig(contract);
+      const amountPerPeriod = getContractPrincipal(contract) * plan.periodicRate;
+      const maxTotalWithdrawal = getContractMaxTotalWithdrawal(contract);
+      const currentTotalWithdrawn = contract.totalWithdrawn ?? (contract.withdrawalsCount * amountPerPeriod);
+      const newTotalWithdrawn = currentTotalWithdrawn + consumedAmount;
+      const equivalentPeriods = plan.compoundLockIn
+        ? (newTotalWithdrawn > 0 ? 1 : 0)
+        : Math.ceil(newTotalWithdrawn / amountPerPeriod);
+      const newStatus = newTotalWithdrawn >= maxTotalWithdrawal ? "completed" : contract.status;
+
+      batch.update(doc(db, "donationContracts", contract.id), {
+        totalWithdrawn: newTotalWithdrawn,
+        withdrawalsCount: equivalentPeriods,
+        lastWithdrawalDate: timestamp,
+        status: newStatus,
+      });
+    }
+  }
+
+  if (amountFromBalance > 0) {
+    batch.update(userRef, {
+      balance: Math.max(0, liveBalance - amountFromBalance),
+    });
+  }
+
+  const newContractRef = doc(collection(db, "donationContracts"));
+  const newContract: Omit<DonationContract, "id"> = {
+    userId,
+    donationAmount: amount,
+    contractType,
+    donationStartDate: timestamp,
+    lastWithdrawalDate: null,
+    withdrawalsCount: 0,
+    totalWithdrawn: 0,
+    contractEndDate: endDate.toISOString(),
+    status: "active",
+    paymentMethod: "redonate_pool",
+    createdAt: timestamp,
+    approvedAt: timestamp,
+    approvedBy: "system_redonate_pool",
+  };
+
+  batch.set(newContractRef, newContract);
+  await batch.commit();
+
+  return newContractRef.id;
 }
 
 /**
@@ -92,7 +368,8 @@ export async function approveContract(
   const now = new Date();
   const startDate = now.toISOString();
   const endDate = new Date(now);
-  endDate.setFullYear(endDate.getFullYear() + 1); // 1 year from approval
+  const plan = getContractPlanConfig(contract);
+  endDate.setMonth(endDate.getMonth() + plan.durationMonths);
 
   await updateDoc(contractRef, {
     status: "active",
@@ -139,6 +416,40 @@ export function canWithdraw(contract: DonationContract): {
   
   const startDate = new Date(contract.donationStartDate);
   const endDate = new Date(contract.contractEndDate);
+  const plan = getContractPlanConfig(contract);
+
+  if (plan.compoundLockIn) {
+    const totalWithdrawn = Number(contract.totalWithdrawn || 0);
+
+    if (now < endDate) {
+      return {
+        canWithdraw: false,
+        reason: `Locked for ${plan.durationMonths} months. Withdrawal unlocks at maturity.`,
+        nextWithdrawalDate: endDate,
+        availablePeriods: 0,
+        availableAmount: 0,
+      };
+    }
+
+    const maturityAmount = getContractMaxTotalWithdrawal(contract);
+    const availableAmount = Math.max(0, maturityAmount - totalWithdrawn);
+
+    if (availableAmount > 0) {
+      return {
+        canWithdraw: true,
+        reason: `${availableAmount.toFixed(2)} KOLI available after lock-in maturity`,
+        availablePeriods: 1,
+        availableAmount,
+      };
+    }
+
+    return {
+      canWithdraw: false,
+      reason: "All matured funds withdrawn",
+      availablePeriods: 0,
+      availableAmount: 0,
+    };
+  }
 
   // Check if contract is expired
   if (now > endDate) {
@@ -165,10 +476,10 @@ export function canWithdraw(contract: DonationContract): {
   const periodsElapsed = Math.floor(daysSinceStart / 30);
   
   // Amount per period (30% of donation)
-  const amountPerPeriod = contract.donationAmount * 0.3;
+  const amountPerPeriod = getContractPrincipal(contract) * plan.periodicRate;
   
   // Maximum total that can ever be withdrawn (12 periods worth = 3.6x donation)
-  const maxTotalWithdrawal = amountPerPeriod * 12;
+  const maxTotalWithdrawal = getContractMaxTotalWithdrawal(contract);
   
   // Total amount withdrawn so far (use new field or calculate from old withdrawalsCount)
   const totalWithdrawn = contract.totalWithdrawn ?? (contract.withdrawalsCount * amountPerPeriod);
@@ -179,7 +490,7 @@ export function canWithdraw(contract: DonationContract): {
   const availableAmount = Math.max(0, accumulatedAmount - totalWithdrawn);
   
   // Calculate equivalent periods for backwards compatibility
-  const availablePeriods = Math.floor(availableAmount / amountPerPeriod);
+  const availablePeriods = amountPerPeriod > 0 ? Math.floor(availableAmount / amountPerPeriod) : 0;
   
   // Check if first period has unlocked yet (30 days after start)
   if (periodsElapsed < 1) {
@@ -233,23 +544,31 @@ export async function withdraw(contractId: string): Promise<number> {
   }
 
   const contract = { id: contractSnap.id, ...contractSnap.data() } as DonationContract;
+  const plan = getContractPlanConfig(contract);
 
   // Validate withdrawal eligibility
-  const { canWithdraw: isAllowed, reason } = canWithdraw(contract);
+  const { canWithdraw: isAllowed, reason, availableAmount = 0 } = canWithdraw(contract);
   if (!isAllowed) {
     throw new Error(reason);
   }
 
-  // Calculate withdrawal amount (always 30% of original donation)
-  const withdrawalAmount = Math.floor(contract.donationAmount * 0.3);
+  // Calculate withdrawal amount based on contract plan
+  const withdrawalAmount = plan.compoundLockIn
+    ? Math.floor(availableAmount)
+    : Math.floor(getContractPrincipal(contract) * plan.periodicRate);
 
   // Update contract
   const now = new Date().toISOString();
-  const newWithdrawalsCount = contract.withdrawalsCount + 1;
-  const newStatus = newWithdrawalsCount >= 12 ? "completed" : "active";
+  const updatedTotalWithdrawn = Number(contract.totalWithdrawn || 0) + withdrawalAmount;
+  const maxTotalWithdrawal = getContractMaxTotalWithdrawal(contract);
+  const newWithdrawalsCount = plan.compoundLockIn
+    ? (updatedTotalWithdrawn > 0 ? 1 : 0)
+    : contract.withdrawalsCount + 1;
+  const newStatus = updatedTotalWithdrawn >= maxTotalWithdrawal ? "completed" : "active";
 
   await updateDoc(contractRef, {
     lastWithdrawalDate: now,
+    totalWithdrawn: updatedTotalWithdrawn,
     withdrawalsCount: newWithdrawalsCount,
     status: newStatus,
   });
@@ -286,9 +605,10 @@ export async function withdrawWithPin(
   }
 
   const contract = { id: contractSnap.id, ...contractSnap.data() } as DonationContract;
+  const plan = getContractPlanConfig(contract);
 
   // Validate withdrawal eligibility
-  const { canWithdraw: isAllowed, reason } = canWithdraw(contract);
+  const { canWithdraw: isAllowed, reason, availableAmount = 0 } = canWithdraw(contract);
   if (!isAllowed) {
     throw new Error(reason);
   }
@@ -313,11 +633,18 @@ export async function withdrawWithPin(
     throw new Error("KYC verification required for withdrawals");
   }
 
-  // Calculate withdrawal amount (always 30% of original donation)
-  const withdrawalAmount = Math.floor(contract.donationAmount * 0.3);
+  // Calculate withdrawal amount based on contract plan
+  const withdrawalAmount = plan.compoundLockIn
+    ? Math.floor(availableAmount)
+    : Math.floor(getContractPrincipal(contract) * plan.periodicRate);
   const now = new Date().toISOString();
-  const newWithdrawalsCount = contract.withdrawalsCount + 1;
-  const newStatus = newWithdrawalsCount >= 12 ? "completed" : "active";
+  const currentTotalWithdrawn = Number(contract.totalWithdrawn || 0);
+  const newTotalWithdrawn = currentTotalWithdrawn + withdrawalAmount;
+  const maxTotalWithdrawal = getContractMaxTotalWithdrawal(contract);
+  const newWithdrawalsCount = plan.compoundLockIn
+    ? (newTotalWithdrawn > 0 ? 1 : 0)
+    : contract.withdrawalsCount + 1;
+  const newStatus = newTotalWithdrawn >= maxTotalWithdrawal ? "completed" : "active";
 
   // Create P2P payout queue document
   await addDoc(collection(db, "payout_queue"), {
@@ -329,18 +656,19 @@ export async function withdrawWithPin(
     userPhoneNumber: userData.phoneNumber || "N/A",
     userEmail: userData.email || "N/A",
     withdrawalNumber: newWithdrawalsCount,
-    totalWithdrawals: 12,
-    contractPrincipal: contract.donationAmount,
+    totalWithdrawals: getContractWithdrawalSlots(contract),
+    contractPrincipal: getContractPrincipal(contract),
     requestedAt: now,
     processedAt: null,
     processedBy: null,
-    notes: `P2P Withdrawal ${newWithdrawalsCount}/12 from contract ${contractId}`,
+    notes: `P2P Withdrawal ${newWithdrawalsCount}/${getContractWithdrawalSlots(contract)} from contract ${contractId}`,
     createdAt: serverTimestamp(),
   });
 
   // Update contract
   await updateDoc(contractRef, {
     lastWithdrawalDate: now,
+    totalWithdrawn: newTotalWithdrawn,
     withdrawalsCount: newWithdrawalsCount,
     status: newStatus,
   });
@@ -357,7 +685,7 @@ export async function withdrawWithPin(
  * @returns Number of remaining withdrawals (0-12)
  */
 export function getRemainingWithdrawals(contract: DonationContract): number {
-  return Math.max(0, 12 - contract.withdrawalsCount);
+  return Math.max(0, getContractWithdrawalSlots(contract) - contract.withdrawalsCount);
 }
 
 /**
@@ -377,15 +705,15 @@ export function isContractActive(contract: DonationContract): boolean {
   const now = new Date();
   const endDate = new Date(contract.contractEndDate);
   
-  // Calculate if user has withdrawn max allowed (12 periods worth = 3.6x donation)
-  const amountPerPeriod = contract.donationAmount * 0.3;
-  const maxTotalWithdrawal = amountPerPeriod * 12;
+  const plan = getContractPlanConfig(contract);
+  const amountPerPeriod = getContractPrincipal(contract) * plan.periodicRate;
+  const maxTotalWithdrawal = getContractMaxTotalWithdrawal(contract);
   const totalWithdrawn = contract.totalWithdrawn ?? (contract.withdrawalsCount * amountPerPeriod);
 
   // Accept both "active" and "approved" statuses
   return (
     (contract.status === "active" || contract.status === "approved") &&
-    now <= endDate &&
+    (plan.compoundLockIn ? true : now <= endDate) &&
     totalWithdrawn < maxTotalWithdrawal
   );
 }
@@ -403,15 +731,33 @@ export function getWithdrawalDetails(contract: DonationContract): {
   withdrawalsRemaining: number;
   maxTotalWithdrawal: number;
 } {
-  const withdrawalPerPeriod = Math.floor(contract.donationAmount * 0.3);
-  const maxTotalWithdrawal = withdrawalPerPeriod * 12;
+  const plan = getContractPlanConfig(contract);
+  const maxTotalWithdrawal = getContractMaxTotalWithdrawal(contract);
+
+  if (plan.compoundLockIn) {
+    const totalWithdrawn = contract.totalWithdrawn ?? 0;
+    const totalRemaining = Math.max(0, maxTotalWithdrawal - totalWithdrawn);
+    const withdrawalsUsed = totalWithdrawn > 0 ? 1 : 0;
+    const withdrawalsRemaining = totalRemaining > 0 ? 1 : 0;
+
+    return {
+      totalWithdrawn,
+      totalRemaining,
+      withdrawalPerPeriod: Math.floor(maxTotalWithdrawal),
+      withdrawalsUsed,
+      withdrawalsRemaining,
+      maxTotalWithdrawal,
+    };
+  }
+
+  const withdrawalPerPeriod = Math.floor(getContractPrincipal(contract) * plan.periodicRate);
   // Use actual amount withdrawn, not period-based calculation
   const totalWithdrawn = contract.totalWithdrawn ?? (withdrawalPerPeriod * contract.withdrawalsCount);
   const totalRemaining = Math.max(0, maxTotalWithdrawal - totalWithdrawn);
   
   // Calculate equivalent periods for display
-  const equivalentPeriodsUsed = Math.ceil(totalWithdrawn / withdrawalPerPeriod);
-  const equivalentPeriodsRemaining = Math.max(0, 12 - equivalentPeriodsUsed);
+  const equivalentPeriodsUsed = withdrawalPerPeriod > 0 ? Math.ceil(totalWithdrawn / withdrawalPerPeriod) : 0;
+  const equivalentPeriodsRemaining = Math.max(0, getContractWithdrawalSlots(contract) - equivalentPeriodsUsed);
 
   return {
     totalWithdrawn,
@@ -675,15 +1021,18 @@ export async function processPooledWithdrawal(
     for (const item of distribution) {
       const { contractId, amount, contract } = item;
       const contractRef = doc(db, "donationContracts", contractId);
+      const plan = getContractPlanConfig(contract);
 
       // Calculate actual total withdrawn and check if completed
-      const amountPerPeriod = contract.donationAmount * 0.3;
-      const maxTotalWithdrawal = amountPerPeriod * 12;
+      const amountPerPeriod = getContractPrincipal(contract) * plan.periodicRate;
+      const maxTotalWithdrawal = getContractMaxTotalWithdrawal(contract);
       const currentTotalWithdrawn = contract.totalWithdrawn ?? (contract.withdrawalsCount * amountPerPeriod);
       const newTotalWithdrawn = currentTotalWithdrawn + amount;
       
       // Calculate equivalent periods for backwards compatibility
-      const equivalentPeriods = Math.ceil(newTotalWithdrawn / amountPerPeriod);
+      const equivalentPeriods = plan.compoundLockIn
+        ? (newTotalWithdrawn > 0 ? 1 : 0)
+        : Math.ceil(newTotalWithdrawn / amountPerPeriod);
       const newStatus = newTotalWithdrawn >= maxTotalWithdrawal ? "completed" : contract.status;
 
       // Update contract with actual amount withdrawn
@@ -710,7 +1059,7 @@ export async function processPooledWithdrawal(
         withdrawalSessionId, // Link to withdrawal session
         totalWithdrawableBalance: totalWithdrawableAfterWithdrawal, // Remaining balance after withdrawal
         withdrawalNumber: equivalentPeriods, // Equivalent period number
-        totalWithdrawals: 12,
+        totalWithdrawals: getContractWithdrawalSlots(contract),
         actualAmountWithdrawn: amount, // Actual amount this withdrawal
         totalWithdrawnSoFar: newTotalWithdrawn, // Total withdrawn including this
         remainingBalance, // Remaining withdrawable balance

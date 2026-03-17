@@ -10,6 +10,11 @@ import koliLogo from "@/assets/koli-logo.png";
 import { auth, db } from "@/lib/firebase";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { collection, getDocs, query, where } from "firebase/firestore";
+import {
+  buildSuspendedAccountMessage,
+  isSuspendedStatus,
+  SUSPENDED_ACCOUNT_MESSAGE_STORAGE_KEY,
+} from "@/lib/accountStatus";
 
 const RATE_LIMIT_MAX_ATTEMPTS = 5;
 const RATE_LIMIT_COOLDOWN_MS = 5 * 60 * 1000;
@@ -18,6 +23,11 @@ const RATE_LIMIT_MESSAGE = "Too many failed attempts, you have been rate limited
 type SignInRateState = {
   failedAttempts: number;
   cooldownUntil: number;
+};
+
+type MemberAccountStatus = {
+  status?: string;
+  suspensionReason?: string;
 };
 
 const getRateLimitStorageKey = (email: string) => `koli-signin-rate-limit:${email}`;
@@ -53,6 +63,14 @@ const formatCooldown = (seconds: number) => {
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
   return `${mins}:${secs.toString().padStart(2, "0")}`;
+};
+
+const getFirebaseErrorCode = (error: unknown) => {
+  if (typeof error === "object" && error !== null && "code" in error) {
+    return String((error as { code?: unknown }).code || "");
+  }
+
+  return "";
 };
 
 const SignIn = () => {
@@ -91,6 +109,17 @@ const SignIn = () => {
       setError("");
     }
   }, [cooldownSeconds, error]);
+
+  useEffect(() => {
+    const suspendedMessage = sessionStorage.getItem(SUSPENDED_ACCOUNT_MESSAGE_STORAGE_KEY);
+    if (!suspendedMessage) {
+      return;
+    }
+
+    setError(suspendedMessage);
+    setShowForgotPassword(false);
+    sessionStorage.removeItem(SUSPENDED_ACCOUNT_MESSAGE_STORAGE_KEY);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -137,13 +166,22 @@ const SignIn = () => {
         return;
       }
 
+      const matchedMemberDoc = normalizedSnapshot.docs[0] ?? rawSnapshot?.docs?.[0];
+      const memberData = matchedMemberDoc?.data() as MemberAccountStatus | undefined;
+      if (memberData && isSuspendedStatus(memberData.status)) {
+        const suspendedMessage = buildSuspendedAccountMessage(memberData.suspensionReason);
+        sessionStorage.setItem(SUSPENDED_ACCOUNT_MESSAGE_STORAGE_KEY, suspendedMessage);
+        setError(suspendedMessage);
+        return;
+      }
+
       // Sign in with Firebase Auth - AuthGuard will handle navigation
       await signInWithEmailAndPassword(auth, normalizedEmail, formData.password);
       clearRateLimitState(normalizedEmail);
       setCooldownSeconds(0);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Sign in error:", error);
-      const errorCode = error?.code;
+      const errorCode = getFirebaseErrorCode(error);
       const isWrongPassword = errorCode === "auth/wrong-password" || errorCode === "auth/invalid-credential";
       const isNetworkError =
         errorCode === "auth/network-request-failed" ||
@@ -180,6 +218,8 @@ const SignIn = () => {
         ? "Incorrect password. Use Forgot password to reset it."
         : errorCode === "auth/user-not-found"
         ? "This email is not registered. Please sign up first."
+        : errorCode === "auth/user-disabled"
+        ? buildSuspendedAccountMessage()
         : errorCode === "auth/too-many-requests"
         ? "Too many failed attempts. Please try again later"
         : isNetworkError

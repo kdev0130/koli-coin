@@ -3,9 +3,7 @@ import { motion } from "motion/react";
 import { useNavigate } from "react-router-dom";
 import {
   IconLogout,
-  IconHome,
   IconGift,
-  IconUser,
   IconWallet,
   IconLock,
   IconClock,
@@ -17,7 +15,6 @@ import {
   IconCircleCheck,
   IconAlertCircle,
 } from "@tabler/icons-react";
-import { Pickaxe } from "lucide-react";
 import koliLogo from "@/assets/koli-logo.png";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,6 +25,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { SkeletonList } from "@/components/ui/skeleton";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRealtimeContracts } from "@/hooks/useRealtimeContracts";
+import { BottomNavigation } from "@/components/common/BottomNavigation";
 import { HeaderWithdrawable } from "@/components/common/HeaderWithdrawable";
 import { AddDonationModal } from "@/components/donation/AddDonationModal";
 import { ExternalWithdrawModal } from "@/components/donation/ExternalWithdrawModal";
@@ -38,6 +36,12 @@ import {
   getDaysUntilNextWithdrawal,
   isContractActive,
   calculateTotalWithdrawable,
+  getContractPrincipal,
+  getContractAdjustmentDetails,
+  getContractPlanLabel,
+  getContractMaxTotalWithdrawal,
+  getContractWithdrawalSlots,
+  getContractType,
 } from "@/lib/donationContract";
 import { toast } from "sonner";
 import { canUserWithdraw, getKycDisclaimer, isUserFullyVerified } from "@/lib/kycService";
@@ -69,7 +73,7 @@ const Donation = () => {
   const expiredContracts = contracts.filter(c => c.status === "expired");
 
   // Calculate totals
-  const totalPrincipal = activeContracts.reduce((sum, c) => sum + c.donationAmount, 0);
+  const totalPrincipal = activeContracts.reduce((sum, c) => sum + getContractPrincipal(c), 0);
   const totalWithdrawn = activeContracts.reduce((sum, c) => {
     const details = getWithdrawalDetails(c);
     return sum + details.totalWithdrawn;
@@ -166,7 +170,7 @@ const Donation = () => {
               Donation Contracts Center
             </h1>
             <p className="text-muted-foreground max-w-2xl mx-auto">
-              1-year contracts with 12 monthly withdrawals. Principal never decreases, withdraw 30% every 30 days.
+              Choose from monthly payout contracts or lock-in compounded contracts to match your withdrawal goals.
             </p>
           </motion.div>
 
@@ -377,7 +381,7 @@ const Donation = () => {
                   <div className="space-y-2">
                     <h3 className="text-xl font-semibold">No Contracts Yet</h3>
                     <p className="text-muted-foreground">
-                      Start earning 30% returns every 30 days for 12 months. Create your first donation contract today!
+                      Start with either monthly withdrawals or lock-in compounding contracts. Create your first donation contract today!
                     </p>
                   </div>
                   <Button onClick={() => setIsAddModalOpen(true)} className="mt-4">
@@ -413,6 +417,16 @@ const Donation = () => {
                                     <IconHourglass size={12} className="mr-1" /> Pending
                                   </Badge>
                                 </div>
+                                {contract.reviewNote && contract.reviewNote.trim() && (
+                                  <div className="mt-2 px-3 py-2 rounded-md bg-primary/10 border border-primary/30 inline-block">
+                                    <p className="text-base font-bold text-primary">
+                                      📝 {contract.reviewNote}
+                                    </p>
+                                  </div>
+                                )}
+                                <p className="text-xs text-muted-foreground">
+                                  Plan: {getContractPlanLabel(contract)}
+                                </p>
                                 <p className="text-xs text-muted-foreground">
                                   Submitted: {new Date(contract.createdAt).toLocaleDateString()}
                                 </p>
@@ -425,21 +439,34 @@ const Donation = () => {
                                 Awaiting admin approval. Contract will activate once approved.
                               </p>
                               <p className="text-xs text-muted-foreground mt-2">
-                                Once approved, your 1-year contract begins and first withdrawal unlocks after 30 days.
+                                {getContractType(contract) === "monthly_12_no_principal"
+                                  ? "Once approved, first withdrawal unlocks after 30 days."
+                                  : `Once approved, withdrawals unlock after ${getContractType(contract) === "lockin_6_compound" ? "6 months" : "12 months"}.`}
                               </p>
                             </div>
 
                             <div className="grid grid-cols-2 gap-3">
                               <div className="p-3 rounded-lg bg-secondary border border-border">
-                                <p className="text-xs text-muted-foreground mb-1">Will Withdraw Per Period</p>
-                                <p className="text-lg font-bold text-green-400">
-                                  {Math.floor(contract.donationAmount * 0.3).toLocaleString()} KOLI
-                                </p>
+                                {getContractType(contract) === "monthly_12_no_principal" ? (
+                                  <>
+                                    <p className="text-xs text-muted-foreground mb-1">Will Withdraw Per Period</p>
+                                    <p className="text-lg font-bold text-green-400">
+                                      {Math.floor(contract.donationAmount * 0.3).toLocaleString()} KOLI
+                                    </p>
+                                  </>
+                                ) : (
+                                  <>
+                                    <p className="text-xs text-muted-foreground mb-1">Lock-In Type</p>
+                                    <p className="text-sm font-bold text-green-400">
+                                      {getContractType(contract) === "lockin_6_compound" ? "6-Month Compound" : "12-Month Compound"}
+                                    </p>
+                                  </>
+                                )}
                               </div>
                               <div className="p-3 rounded-lg bg-secondary border border-border">
-                                <p className="text-xs text-muted-foreground mb-1">Max Total (12 times)</p>
+                                <p className="text-xs text-muted-foreground mb-1">Max Total Potential</p>
                                 <p className="text-lg font-bold text-primary">
-                                  {Math.floor(contract.donationAmount * 0.3 * 12).toLocaleString()} KOLI
+                                  {Math.floor(getContractMaxTotalWithdrawal(contract)).toLocaleString()} KOLI
                                 </p>
                               </div>
                             </div>
@@ -458,15 +485,20 @@ const Donation = () => {
                       Active Contracts ({activeContracts.length})
                     </h3>
                     {activeContracts.map((contract, index) => {
-                  const { canWithdraw: canWithdrawNow, reason, nextWithdrawalDate, availablePeriods = 0 } = canWithdraw(contract);
+                  const {
+                    canWithdraw: canWithdrawNow,
+                    reason,
+                    nextWithdrawalDate,
+                    availablePeriods = 0,
+                    availableAmount: availableAmountNow = 0,
+                  } = canWithdraw(contract);
                   const details = getWithdrawalDetails(contract);
-                  const daysUntil = getDaysUntilNextWithdrawal(contract);
+                  const adjustment = getContractAdjustmentDetails(contract);
+                  const isMonthlyPlan = getContractType(contract) === "monthly_12_no_principal";
+                  const totalSlots = getContractWithdrawalSlots(contract);
                   const startDate = new Date(contract.donationStartDate);
                   const endDate = new Date(contract.contractEndDate);
                   const now = new Date();
-                  
-                  // Calculate available amount (can be multiple periods stacked)
-                  const availableAmount = details.withdrawalPerPeriod * (availablePeriods > 0 ? availablePeriods : 1);
                   
                   // Calculate contract progress (0-100%)
                   const totalDuration = endDate.getTime() - startDate.getTime();
@@ -489,14 +521,14 @@ const Donation = () => {
                           {/* Header */}
                           <div className="flex items-start justify-between mb-4">
                             <div className="space-y-1">
-                              <div className="flex items-center gap-2">
-                                <h3 className="font-bold text-2xl text-foreground">
-                                  {contract.donationAmount.toLocaleString()} KOLI
-                                </h3>
-                                <Badge 
-                                  variant={canWithdrawNow ? "default" : "outline"} 
-                                  className={
-                                    canWithdrawNow 
+                                <div className="flex items-center gap-2">
+                                  <h3 className="font-bold text-2xl text-foreground">
+                                  {adjustment.approvedAmount.toLocaleString()} KOLI
+                                  </h3>
+                                  <Badge 
+                                    variant={canWithdrawNow ? "default" : "outline"} 
+                                    className={
+                                      canWithdrawNow 
                                       ? "bg-green-500 text-white" 
                                       : "border-primary text-primary"
                                   }
@@ -507,15 +539,35 @@ const Donation = () => {
                                     <><IconClock size={12} className="mr-1" /> Growing</>
                                   )}
                                 </Badge>
+                                {adjustment.isAdjusted && (
+                                  <Badge variant="outline" className="border-yellow-500/50 text-yellow-500">
+                                    Adjusted
+                                  </Badge>
+                                )}
                               </div>
+                              {contract.reviewNote && contract.reviewNote.trim() && (
+                                <div className="mt-2 px-3 py-2 rounded-md bg-primary/10 border border-primary/30 inline-block">
+                                  <p className="text-base font-bold text-primary">
+                                    📝 {contract.reviewNote}
+                                  </p>
+                                </div>
+                              )}
                               <p className="text-xs text-muted-foreground">
                                 Started: {startDate.toLocaleDateString()}
                               </p>
+                              <p className="text-xs text-muted-foreground">
+                                Plan: {getContractPlanLabel(contract)}
+                              </p>
+                              {adjustment.isAdjusted && (
+                                <p className="text-xs text-yellow-500">
+                                  Verified: {adjustment.approvedAmount.toLocaleString()} KOLI from {adjustment.originalAmount.toLocaleString()} KOLI submitted
+                                </p>
+                              )}
                             </div>
                             <div className="text-right">
                               <p className="text-xs text-muted-foreground">Withdrawals</p>
                               <p className="text-lg font-bold text-foreground">
-                                {details.withdrawalsUsed}/{12}
+                                {details.withdrawalsUsed}/{totalSlots}
                               </p>
                             </div>
                           </div>
@@ -523,11 +575,15 @@ const Donation = () => {
                           {/* Withdrawal Info */}
                           <div className="grid grid-cols-2 gap-3 mb-4">
                             <div className="p-3 rounded-lg bg-secondary border border-border">
-                              <p className="text-xs text-muted-foreground mb-1">Per Withdrawal</p>
-                              <p className="text-lg font-bold text-green-400">
-                                {details.withdrawalPerPeriod.toLocaleString()} KOLI
+                              <p className="text-xs text-muted-foreground mb-1">
+                                {isMonthlyPlan ? "Per Withdrawal" : "Unlock Amount"}
                               </p>
-                              <p className="text-xs text-muted-foreground mt-1">30% each time</p>
+                              <p className="text-lg font-bold text-green-400">
+                                {(isMonthlyPlan ? details.withdrawalPerPeriod : details.maxTotalWithdrawal).toLocaleString()} KOLI
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {isMonthlyPlan ? "30% each time" : "Full amount unlocked at maturity"}
+                              </p>
                             </div>
                             <div className="p-3 rounded-lg bg-secondary border border-border">
                               <p className="text-xs text-muted-foreground mb-1">Total Withdrawn</p>
@@ -565,9 +621,9 @@ const Donation = () => {
                               <div className="space-y-1">
                                 <p className="text-sm font-medium flex items-center gap-2 text-green-400">
                                   <IconCircleCheck size={16} />
-                                  Ready to withdraw {availableAmount.toLocaleString()} KOLI!
+                                  Ready to withdraw {availableAmountNow.toLocaleString()} KOLI!
                                 </p>
-                                {availablePeriods > 1 && (
+                                {isMonthlyPlan && availablePeriods > 1 && (
                                   <p className="text-xs text-muted-foreground">
                                     {availablePeriods} periods stacked ({details.withdrawalPerPeriod.toLocaleString()} KOLI × {availablePeriods})
                                   </p>
@@ -646,10 +702,10 @@ const Donation = () => {
                     </h4>
                     <ul className="text-xs text-muted-foreground space-y-1">
                       <li>• Principal amount never decreases</li>
-                      <li>• First withdrawal available after 30 days</li>
-                      <li>• Withdraw 30% of original donation every 30 days</li>
-                      <li>• Maximum 12 withdrawals over 1 year</li>
-                      <li>• Contract expires after 1 year</li>
+                      <li>• Option 1: 30% every 30 days for 12 months (principal unchanged)</li>
+                      <li>• Option 2: 6-month lock-in with 30% monthly compounding</li>
+                      <li>• Option 3: 12-month lock-in with 30% monthly compounding</li>
+                      <li>• Lock-in contracts unlock the full compounded amount at maturity</li>
                     </ul>
                   </div>
                 </div>
@@ -664,6 +720,9 @@ const Donation = () => {
       <AddDonationModal
         open={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
+        contracts={contracts}
+        userBalance={userBalance}
+        withdrawablePoolAmount={totalWithdrawable}
       />
 
       {/* External Withdraw Modal */}
@@ -673,34 +732,7 @@ const Donation = () => {
         withdrawableAmount={totalWithdrawable}
       />
 
-      {/* Bottom Navigation */}
-      <nav
-        className="ios-fixed-nav fixed bottom-0 left-0 right-0 z-[9999] flex items-center justify-around px-4 py-2 pb-[env(safe-area-inset-bottom)] border-t border-border bg-card backdrop-blur-lg"
-        style={{ 
-          position: 'fixed',
-          transform: 'translate3d(0, 0, 0)',
-          WebkitTransform: 'translate3d(0, 0, 0)',
-          touchAction: 'none'
-        }}
-      >
-        {[
-          { icon: IconHome, label: "Home", path: "/dashboard" },
-          { icon: IconGift, label: "Donation", path: "/donation" },
-          { icon: Pickaxe, label: "Mining", path: "/mining" },
-          { icon: IconUser, label: "Profile", path: "/profile" },
-        ].map((item, index) => (
-          <button
-            key={item.label}
-            onClick={() => navigate(item.path)}
-            className={`flex flex-col items-center gap-1 px-3 py-1 rounded-lg transition-colors ${
-              index === 1 ? "text-primary" : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <item.icon size={22} />
-            <span className="text-xs">{item.label}</span>
-          </button>
-        ))}
-      </nav>
+      <BottomNavigation />
     </div>
   );
 };

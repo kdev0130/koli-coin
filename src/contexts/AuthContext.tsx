@@ -2,6 +2,11 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged, signOut, User as FirebaseUser } from "firebase/auth";
 import { doc, onSnapshot } from "firebase/firestore";
+import {
+  buildSuspendedAccountMessage,
+  isSuspendedStatus,
+  SUSPENDED_ACCOUNT_MESSAGE_STORAGE_KEY,
+} from "@/lib/accountStatus";
 
 interface UserData {
   uid: string;
@@ -19,6 +24,10 @@ interface UserData {
   referralCode?: string;
   role: string;
   createdAt: string;
+  status?: string;
+  suspendedAt?: string;
+  suspendedBy?: string;
+  suspensionReason?: string;
   
   // Email Verification
   emailVerified: boolean;
@@ -89,8 +98,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     let unsubscribeSnapshot: (() => void) | undefined;
+    let handlingSuspendedAccount = false;
 
     const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
+      if (unsubscribeSnapshot) {
+        unsubscribeSnapshot();
+        unsubscribeSnapshot = undefined;
+      }
+
       setUser(firebaseUser);
       
       if (firebaseUser) {
@@ -101,9 +116,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           userDocRef,
           (docSnapshot) => {
             if (docSnapshot.exists()) {
+              const memberData = docSnapshot.data() as UserData;
+
+              if (!handlingSuspendedAccount && isSuspendedStatus(memberData.status)) {
+                handlingSuspendedAccount = true;
+                sessionStorage.setItem(
+                  SUSPENDED_ACCOUNT_MESSAGE_STORAGE_KEY,
+                  buildSuspendedAccountMessage(memberData.suspensionReason)
+                );
+                setUserData(null);
+                setUser(null);
+                setLoading(false);
+
+                signOut(auth)
+                  .catch((signOutError) => {
+                    console.error("Error signing out suspended user:", signOutError);
+                  })
+                  .finally(() => {
+                    handlingSuspendedAccount = false;
+                  });
+                return;
+              }
+
               setUserData({
                 uid: firebaseUser.uid,
-                ...docSnapshot.data(),
+                ...memberData,
               } as UserData);
             } else {
               console.error("User document not found in Firestore");

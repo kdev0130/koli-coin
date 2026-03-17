@@ -39,6 +39,7 @@ import { useRealtimeContracts } from "@/hooks/useRealtimeContracts";
 import { useRealtimePayouts } from "@/hooks/useRealtimePayouts";
 import { useRealtimeRewardsHistory } from "@/hooks/useRealtimeRewardsHistory";
 import { HeaderWithdrawable } from "@/components/common/HeaderWithdrawable";
+import { DonationContract, getContractAdjustmentDetails } from "@/lib/donationContract";
 
 interface Transaction {
   id: string;
@@ -97,13 +98,17 @@ const TransactionHistory = () => {
 
     // Add deposits (from contracts)
     contracts.forEach((contract) => {
+      const adjustment = getContractAdjustmentDetails(contract as DonationContract);
+      const displayAmount = adjustment.isAdjusted ? adjustment.approvedAmount : contract.donationAmount;
       transactions.push({
         id: `deposit-${contract.id}`,
         type: "deposit",
-        amount: contract.donationAmount,
+        amount: displayAmount,
         status: contract.status,
         date: new Date(contract.createdAt),
-        description: `Donation Contract - ${contract.donationAmount.toLocaleString()} KOLI`,
+        description: adjustment.isAdjusted
+          ? `Donation Contract - ${displayAmount.toLocaleString()} KOLI (Adjusted)`
+          : `Donation Contract - ${contract.donationAmount.toLocaleString()} KOLI`,
         details: contract,
       });
     });
@@ -204,11 +209,19 @@ const TransactionHistory = () => {
     });
   }, [allTransactions, activeTab]);
 
-  const getStatusBadge = (type: string, status: string) => {
+  const getStatusBadge = (type: string, status: string, details?: Transaction["details"]) => {
     if (type === "deposit") {
+      const adjustment = details ? getContractAdjustmentDetails(details as DonationContract) : null;
       switch (status) {
         case "active":
         case "approved":
+          if (adjustment?.isAdjusted) {
+            return (
+              <Badge className="bg-yellow-500 text-black">
+                <IconCircleCheck size={12} className="mr-1" /> Adjusted
+              </Badge>
+            );
+          }
           return (
             <Badge className="bg-green-500 text-white">
               <IconCircleCheck size={12} className="mr-1" /> Active
@@ -467,7 +480,11 @@ const TransactionHistory = () => {
                                       )}
                                     </div>
                                     <div className="flex items-center gap-2 flex-shrink-0 self-start">
-                                      {getStatusBadge(isGroup ? "withdrawal" : transaction.type, transaction.status)}
+                                      {getStatusBadge(
+                                        isGroup ? "withdrawal" : transaction.type,
+                                        transaction.status,
+                                        isGroup ? undefined : transaction.details
+                                      )}
                                       {isGroup && (
                                         <div className="text-muted-foreground">
                                           {isExpanded ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
@@ -535,6 +552,30 @@ const TransactionHistory = () => {
                                       )}
 
                                       {transaction.type === "deposit" &&
+                                        (() => {
+                                          if (!transaction.details) return null;
+                                          const adjustment = getContractAdjustmentDetails(transaction.details as DonationContract);
+                                          if (!adjustment.isAdjusted) return null;
+
+                                          return (
+                                            <div className="mt-2 pt-2 border-t border-yellow-500/30">
+                                              <p className="text-xs text-yellow-500 flex items-start gap-1">
+                                                <IconAlertCircle size={12} className="mt-0.5 flex-shrink-0" />
+                                                <span>
+                                                  Approved as {adjustment.approvedAmount.toLocaleString()} KOLI
+                                                  from {adjustment.originalAmount.toLocaleString()} KOLI submitted.
+                                                </span>
+                                              </p>
+                                              {transaction.details?.reviewNote && (
+                                                <p className="text-xs text-muted-foreground mt-1">
+                                                  Admin note: {transaction.details.reviewNote}
+                                                </p>
+                                              )}
+                                            </div>
+                                          );
+                                        })()}
+
+                                      {transaction.type === "deposit" &&
                                         transaction.status === "rejected" &&
                                         transaction.details?.rejectionReason && (
                                           <div className="mt-2 pt-2 border-t border-red-500/30">
@@ -590,7 +631,7 @@ const TransactionHistory = () => {
                                     <CardContent className="p-3">
                                       <div className="flex items-center justify-between mb-2">
                                         <p className="text-sm font-medium">{withdrawal.description}</p>
-                                        {getStatusBadge("withdrawal", withdrawal.status)}
+                                        {getStatusBadge("withdrawal", withdrawal.status, withdrawal.details)}
                                       </div>
                                       <div className="flex items-center justify-between text-xs">
                                         <span className="text-muted-foreground">

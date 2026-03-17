@@ -1,20 +1,16 @@
 import React, { useMemo, useState } from "react";
 import { motion } from "motion/react";
-import { useNavigate } from "react-router-dom";
 import {
   IconBell,
-  IconHome,
-  IconGift,
-  IconUser,
   IconCheck,
   IconClock,
 } from "@tabler/icons-react";
-import { Pickaxe } from "lucide-react";
 import koliLogo from "@/assets/koli-logo.png";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
+import { BottomNavigation } from "@/components/common/BottomNavigation";
 import { HeaderWithdrawable } from "@/components/common/HeaderWithdrawable";
 import { useRealtimeNotifications } from "@/hooks/useRealtimeNotifications";
 import {
@@ -39,6 +35,8 @@ const getTypeLabel = (type: AppNotification["type"]) => {
       return "KYC";
     case "donation_approved":
       return "Donation";
+    case "donation_adjusted":
+      return "Adjusted";
     case "transaction_approved":
       return "Transaction";
     case "contract_near_withdrawal":
@@ -51,7 +49,6 @@ const getTypeLabel = (type: AppNotification["type"]) => {
 };
 
 const Notifications = () => {
-  const navigate = useNavigate();
   const { user } = useAuth();
   const { data: notifications, loading, unreadCount } = useRealtimeNotifications(user?.uid || null);
   const [isMarkingAll, setIsMarkingAll] = useState(false);
@@ -192,31 +189,7 @@ const Notifications = () => {
         </div>
       </main>
 
-      <nav
-        className="ios-fixed-nav fixed bottom-0 left-0 right-0 z-[9999] flex items-center justify-around px-4 py-2 pb-[env(safe-area-inset-bottom)] border-t border-border bg-card backdrop-blur-lg"
-        style={{
-          position: "fixed",
-          transform: "translate3d(0, 0, 0)",
-          WebkitTransform: "translate3d(0, 0, 0)",
-          touchAction: "none",
-        }}
-      >
-        {[
-          { icon: IconHome, label: "Home", path: "/dashboard" },
-          { icon: IconGift, label: "Donation", path: "/donation" },
-          { icon: Pickaxe, label: "Mining", path: "/mining" },
-          { icon: IconUser, label: "Profile", path: "/profile" },
-        ].map((item) => (
-          <button
-            key={item.label}
-            onClick={() => navigate(item.path)}
-            className="flex flex-col items-center gap-1 px-3 py-1 rounded-lg transition-colors text-muted-foreground hover:text-foreground"
-          >
-            <item.icon size={22} />
-            <span className="text-xs">{item.label}</span>
-          </button>
-        ))}
-      </nav>
+      <BottomNavigation />
     </div>
   );
 };

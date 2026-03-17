@@ -7,6 +7,13 @@ interface AuthGuardProps {
   children: React.ReactNode;
 }
 
+const getSafeRedirect = (value: string | null) => {
+  if (!value) return null;
+  if (!value.startsWith("/")) return null;
+  if (value.startsWith("//")) return null;
+  return value;
+};
+
 /**
  * AuthGuard component handles:
  * 1. Session persistence
@@ -38,12 +45,15 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({ children }) => {
 
   const isPublicRoute = publicRoutes.includes(location.pathname);
   const isNoPinRoute = noPinRoutes.includes(location.pathname);
+  const isWalletAuthRoute = location.pathname === "/wallet-auth";
 
   useEffect(() => {
     if (loading) return;
 
+    const redirectParam = getSafeRedirect(new URLSearchParams(location.search).get("redirect"));
+
     // Not authenticated → redirect to login
-    if (!user && !isPublicRoute) {
+    if (!user && !isPublicRoute && !isWalletAuthRoute) {
       navigate("/signin");
       return;
     }
@@ -63,7 +73,11 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({ children }) => {
 
     // Authenticated with userData and on signin page → redirect to dashboard  
     if (user && userData && location.pathname === "/signin") {
-      navigate("/dashboard");
+      if (redirectParam) {
+        navigate(redirectParam, { replace: true });
+      } else {
+        navigate("/dashboard");
+      }
       return;
     }
 
@@ -95,7 +109,7 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({ children }) => {
     }
 
     setCheckingUnlock(false);
-  }, [user, userData, loading, location.pathname, navigate, isPublicRoute, isNoPinRoute, logout]);
+  }, [user, userData, loading, location.pathname, location.search, navigate, isPublicRoute, isNoPinRoute, isWalletAuthRoute, logout]);
 
   const handleUnlock = () => {
     if (user) {
@@ -130,3 +144,4 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({ children }) => {
   // Unlocked or no PIN required → show protected content
   return <>{children}</>;
 };
+

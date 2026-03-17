@@ -394,10 +394,12 @@ const SignUp = () => {
                 </label>
                 <AnimatedInput
                   type="text"
-                  placeholder="Enter referral code"
+                  placeholder="Coming soon"
                   value={formData.referralCode}
-                  onChange={(e) => handleChange("referralCode", e.target.value)}
+                  onChange={() => {}}
+                  disabled
                 />
+                <p className="text-xs text-muted-foreground">Referral input is coming soon.</p>
               </div>
 
               {/* Terms Agreement */}
