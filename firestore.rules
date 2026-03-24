@@ -207,7 +207,7 @@ service cloud.firestore {
 
     // System Settings - allow app clients to read global platform settings
     match /systemSettings/{docId} {
-      allow read: if request.auth != null;
+      allow read: if true;
       allow write: if false;
     }
     
@@ -229,6 +229,14 @@ service cloud.firestore {
       allow read: if request.auth != null && request.auth.uid == userId;
       allow create: if request.auth != null && request.auth.uid == userId;
       allow update, delete: if false;
+    }
+
+    // K-Kash Accounts - tie K-Kash to members UID and wallet
+    match /kashAccounts/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null && request.auth.uid == userId;
+      allow update: if request.auth != null && request.auth.uid == userId;
+      allow delete: if false;
     }
     
     // Allow admins full access to remaining collections

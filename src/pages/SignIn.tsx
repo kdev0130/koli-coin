@@ -8,8 +8,8 @@ import { AnimatedInput } from "@/components/ui/animated-input";
 import { KoliButton } from "@/components/ui/koli-button";
 import koliLogo from "@/assets/koli-logo.png";
 import { auth, db } from "@/lib/firebase";
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import { signInWithEmailAndPassword, signOut } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
 import {
   buildSuspendedAccountMessage,
   isSuspendedStatus,
@@ -149,34 +149,19 @@ const SignIn = () => {
     
     setLoading(true);
     try {
-      const rawEmail = formData.email.trim();
-      const membersRef = collection(db, "members");
+      // Sign in with Firebase Auth - AuthGuard will handle navigation
+      const credentials = await signInWithEmailAndPassword(auth, normalizedEmail, formData.password);
 
-      const [normalizedSnapshot, rawSnapshot] = await Promise.all([
-        getDocs(query(membersRef, where("email", "==", normalizedEmail))),
-        normalizedEmail === rawEmail
-          ? Promise.resolve(null)
-          : getDocs(query(membersRef, where("email", "==", rawEmail))),
-      ]);
-
-      const isRegistered = !normalizedSnapshot.empty || !!rawSnapshot?.docs?.length;
-
-      if (!isRegistered) {
-        setError("This email is not registered. Please sign up first.");
-        return;
-      }
-
-      const matchedMemberDoc = normalizedSnapshot.docs[0] ?? rawSnapshot?.docs?.[0];
-      const memberData = matchedMemberDoc?.data() as MemberAccountStatus | undefined;
+      // After auth, verify member status (avoid email query to prevent Firestore assertion issues)
+      const memberSnap = await getDoc(doc(db, "members", credentials.user.uid));
+      const memberData = memberSnap.exists() ? (memberSnap.data() as MemberAccountStatus) : undefined;
       if (memberData && isSuspendedStatus(memberData.status)) {
         const suspendedMessage = buildSuspendedAccountMessage(memberData.suspensionReason);
         sessionStorage.setItem(SUSPENDED_ACCOUNT_MESSAGE_STORAGE_KEY, suspendedMessage);
         setError(suspendedMessage);
+        await signOut(auth);
         return;
       }
-
-      // Sign in with Firebase Auth - AuthGuard will handle navigation
-      await signInWithEmailAndPassword(auth, normalizedEmail, formData.password);
       clearRateLimitState(normalizedEmail);
       setCooldownSeconds(0);
     } catch (error: unknown) {

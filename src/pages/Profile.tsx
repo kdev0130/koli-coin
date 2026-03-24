@@ -77,14 +77,14 @@ const Profile = () => {
     return sum + details.totalWithdrawn;
   }, 0);
   
-  // Use new pooled withdrawal calculation (includes MANA balance)
+  // Use contract-only withdrawable total; keep MANA rewards separate
   const userBalance = userData?.balance || 0;
-  const { 
-    totalAmount: totalWithdrawable, 
+  const {
+    totalAmount: totalWithdrawable,
     contractWithdrawals,
-    manaBalance,
-    eligibleContracts 
-  } = calculateTotalWithdrawable(contracts, userBalance);
+    eligibleContracts,
+  } = calculateTotalWithdrawable(contracts, 0);
+  const manaBalance = userBalance;
   const readyToWithdrawCount = eligibleContracts.length;
   
   const totalWithdrawalsUsed = [...activeContracts, ...completedContracts].reduce((sum, c) => sum + c.withdrawalsCount, 0);
@@ -535,7 +535,7 @@ const Profile = () => {
                       <p className="text-xs text-muted-foreground">
                         Withdraw from {readyToWithdrawCount} contract{readyToWithdrawCount > 1 ? 's' : ''} at once. 
                         Choose your amount or withdraw all {totalWithdrawable.toLocaleString()} KOLI in one transaction.
-                        {manaBalance > 0 && ` Includes ${manaBalance.toLocaleString()} KOLI from MANA rewards.`}
+                        {manaBalance > 0 && ` MANA rewards are tracked separately (${manaBalance.toLocaleString()} KOLI).`}
                       </p>
                       <div className="flex items-center gap-2 pt-1">
                         <Badge variant="outline" className="text-xs">
