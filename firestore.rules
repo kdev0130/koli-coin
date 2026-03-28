@@ -125,6 +125,19 @@ service cloud.firestore {
       allow create: if request.auth != null || request.resource.data.sourceApp == "odhex";
       allow update, delete: if request.auth != null;
     }
+
+    // K-Kash cashout requests
+    match /kashCashouts/{cashoutId} {
+      allow read: if request.auth != null && resource.data.firebaseUid == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.firebaseUid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // K-Kash transactions
+    match /kashTransactions/{txId} {
+      allow read: if request.auth != null && resource.data.firebaseUid == request.auth.uid;
+      allow write: if false;
+    }
     
     // Legacy deposits collection (keep for backwards compatibility)
     match /deposits/{depositId} {

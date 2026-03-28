@@ -36,7 +36,7 @@ export const ExternalWithdrawModal: React.FC<ExternalWithdrawModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const tokenServiceUrl =
-    import.meta.env.VITE_TOKEN_SERVICE_URL || "http://localhost:4000";
+    import.meta.env.VITE_TOKEN_SERVICE_URL || "http://localhost:3000/api";
 
   useEffect(() => {
     if (open) {
@@ -121,7 +121,7 @@ export const ExternalWithdrawModal: React.FC<ExternalWithdrawModalProps> = ({
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ amount: requestedAmount }),
+        body: JSON.stringify({ amount: requestedAmount, pin }),
       });
 
       if (!res.ok) {
